@@ -35,7 +35,7 @@ pnpm install
 pnpm build && pnpm run start:dapr:api-server
 ```
 
-Once the server is running, you can trigger a new activity sequence workflow by making a POST request to the `/schedule-activity-sequence` endpoint:
+Once the server is running, you can trigger a new activity sequence workflow by making a POST request to the `/process-payload` endpoint:
 ```bash
 curl -X POST http://localhost:3000/process-payload \
   -H "Content-Type: application/json" \
