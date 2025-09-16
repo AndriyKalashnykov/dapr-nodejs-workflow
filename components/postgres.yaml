@@ -1,0 +1,12 @@
+# components/postgres.yaml
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: postgres-db  # This is the default storeName used in the workflow
+spec:
+  type: bindings.postgres
+  version: v1
+  metadata:
+    - name: url
+      value: "postgresql://postgres:daprrulz@localhost:5432/postgres?sslmode=disable"
+  # Add any other necessary configuration options

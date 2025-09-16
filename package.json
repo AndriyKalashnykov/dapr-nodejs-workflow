@@ -1,0 +1,30 @@
+{
+  "name": "dapr-nodejs-workflow",
+  "version": "1.0.0",
+  "description": "Dapr JS-SDK to author workflow",
+  "private": "true",
+  "scripts": {
+    "build": "npx tsc --outDir ./dist/",
+    "start:api-server": "pnpm run build && node dist/api-server.js",
+    "start:dapr:api-server": "DAPR_HOST=localhost DAPR_HTTP_PORT=3500 dapr run --app-id workflow-api --app-port 3000 --app-protocol http --dapr-grpc-port 50001 --dapr-http-port 3500 --resources-path ./components npm run start:api-server"
+
+  },
+  "author": "Andriy Kalashnykov",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/readline-sync": "^1.4.8",
+    "readline-sync": "^1.4.10",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  },
+  "dependencies": {
+    "@dapr/dapr": "^3.5.2",
+    "@dapr/dapr-dev": "3.5.2-20250813010318-26e8be8",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^18.19.125",
+    "axios": "^1.12.2",
+    "cors": "^2.8.5",
+    "express": "^5.1.0"
+  }
+}
