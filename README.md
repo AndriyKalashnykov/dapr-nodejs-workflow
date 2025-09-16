@@ -42,10 +42,38 @@ curl -X POST http://localhost:3000/process-payload \
   -d '{"name": "John Doe", "data": {"key1": "value1", "key2": "value2"}}'
 ```
 
-This will return a JSON response with the workflow ID, which you can then use to check the status:
+This will return a JSON response with the workflow ID, which you can then use to check the status when delayActivity called and pending:
 ```bash
 curl http://localhost:3000/workflow/{workflow-id}/status | jq .
+```
+response would not have the `output` property
+```json
+{
+  "id": "82236756-4f38-4b5f-9796-a1268184561e",
+  "status": "0",
+  "createdAt": "2025-09-16T16:34:44.118Z",
+  "lastUpdatedAt": "2025-09-16T16:34:47.139Z"
+}
+```
 
+and then you can check deleyActivity is done:
+```bash
+curl http://localhost:3000/workflow/{workflow-id}/status | jq .
+```
+response would have the `output` property
+```json
+{
+  "id": "82236756-4f38-4b5f-9796-a1268184561e",
+  "status": "1",
+  "output": "{\"name\":\"John Doe\",\"data\":{\"key1\":\"value1\",\"key2\":\"value2\"},\"processed\":true,\"processedAt\":\"2025-09-16T16:35:21.171Z\",\"modified\":true,\"dbData\":[[1,\"2025-09-15T22:57:13.170558-04:00\",\"2025-09-15T22:57:13.170558-04:00\",null,\"john.doe@example.com\",\"hashed_password_1\",\"John\",\"Doe\",\"1980-01-01T00:00:00-05:00\",null,\"USA\",\"American\",null,false,null],[2,\"2025-09-15T22:57:13.170558-04:00\",\"2025-09-15T22:57:13.170558-04:00\",null,\"jane.smith@example.com\",\"hashed_password_2\",\"Jane\",\"Smith\",\"1985-05-15T00:00:00-04:00\",null,\"Canada\",\"Canadian\",null,true,null]]}",
+  "createdAt": "2025-09-16T16:34:44.118Z",
+  "lastUpdatedAt": "2025-09-16T16:35:21.199Z"
+}
+
+```
+
+check DB status
+```bash
 curl http://localhost:3000/db-health
 ```
 
