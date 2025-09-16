@@ -14,7 +14,7 @@
 ```bash
 mkdir ~/projects && cd ~/projects
 git clone git@github.com:AndriyKalashnykov/dapr-nodejs-workflow.git && cd ~/projects/dapr-nodejs-workflow
-``
+```
 
 ## Install and Initialize Dapr in your local environment
 
@@ -25,27 +25,25 @@ git clone git@github.com:AndriyKalashnykov/dapr-nodejs-workflow.git && cd ~/proj
 
 ```bash
 ./run-postgres.sh
-`
+```
 
 ## Running the example
 
 ```bash
 # Install
 pnpm install
-
-# Run the example
 pnpm build && pnpm run start:dapr:api-server
 ```
 
 Once the server is running, you can trigger a new activity sequence workflow by making a POST request to the `/schedule-activity-sequence` endpoint:
-``` bash
+```bash
 curl -X POST http://localhost:3000/process-payload \
   -H "Content-Type: application/json" \
   -d '{"name": "John Doe", "data": {"key1": "value1", "key2": "value2"}}'
 ```
 
 This will return a JSON response with the workflow ID, which you can then use to check the status:
-``` bash
+```bash
 curl http://localhost:3000/workflow/{workflow-id}/status
 
 curl http://localhost:3000/db-health
