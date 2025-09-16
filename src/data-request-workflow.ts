@@ -121,6 +121,7 @@ export const dataRequestWorkflow: TWorkflow = async function* (
         storeName?: string ;
         resultKey?: string;
         stateKey?: string; // Optional key for state store access
+        delayMs?: number;
     }
 ): AsyncGenerator<any, Record<string, any>, any> {
     try {
@@ -129,6 +130,11 @@ export const dataRequestWorkflow: TWorkflow = async function* (
         const resultKey = input.resultKey || "dbData";
 
         console.log(`Processing payload: ${JSON.stringify(payload)}`);
+
+        if (input.delayMs && input.delayMs > 0) {
+            console.log(`Adding a delay of ${input.delayMs}ms to the workflow`);
+            yield ctx.callActivity(delayActivity, input.delayMs);
+        }
 
         // First, modify the payload with basic info
         const modifiedPayload = yield ctx.callActivity(modifyPayloadActivity, payload);

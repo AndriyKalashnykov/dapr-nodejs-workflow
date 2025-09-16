@@ -114,7 +114,8 @@ app.post('/process-payload', async (req: Request, res: Response<ScheduleResponse
             query: "select * from users",
             queryParams: req.body.queryParams,
             storeName: "postgres-db",
-            resultKey: req.body.resultKey
+            resultKey: req.body.resultKey,
+            delayMs: 30*1000, // 30 seconds delay to emulate long data request
         };
 
         console.log(`Received input: ${JSON.stringify(input)}`);

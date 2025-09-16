@@ -44,7 +44,7 @@ curl -X POST http://localhost:3000/process-payload \
 
 This will return a JSON response with the workflow ID, which you can then use to check the status:
 ```bash
-curl http://localhost:3000/workflow/{workflow-id}/status
+curl http://localhost:3000/workflow/{workflow-id}/status | jq .
 
 curl http://localhost:3000/db-health
 ```
