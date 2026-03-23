@@ -6,7 +6,7 @@
 * [Docker](https://www.docker.com/)
 * [Git](https://git-scm.com/downloads)
 * [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
-* [Node.js](https://nodejs.org/en/) v22+
+* [Node.js](https://nodejs.org/en/) v24+
 * [pnpm](https://pnpm.io/)
 
 ## Clone the repository

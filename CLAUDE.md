@@ -27,7 +27,7 @@ The full test sequence with Dapr:
 5. `make check-workflow` or `make check-db` (Terminal 2)
 6. `make stop` → `make postgres-stop`
 
-The CI pipeline (`.github/workflows/ci.yml`) runs `pnpm install` and `pnpm build` only — there are no automated tests.
+The CI pipeline (`.github/workflows/ci.yml`) runs `make install` and `make build` only — there are no automated tests.
 
 ## Architecture
 
