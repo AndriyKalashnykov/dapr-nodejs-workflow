@@ -43,7 +43,9 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\)[0]; print\\(json.dumps\\(d[''''NetworkSettings''''], indent=2\\)\\)\")",
       "Bash(docker start:*)",
       "Bash(dapr stop:*)",
-      "Bash(command -v act)"
+      "Bash(command -v act)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)"
     ]
   },
   "experiments": {
