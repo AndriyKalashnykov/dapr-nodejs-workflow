@@ -1,3 +1,4 @@
+import net from 'net';
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import {
@@ -38,16 +39,37 @@ let workflowRuntime: WorkflowRuntime | null = null;
 let workflowInitialized: boolean = false;
 
 
+// Check if a TCP port is reachable
+function checkPort(host: string, port: number, timeoutMs: number = 2000): Promise<boolean> {
+    return new Promise((resolve) => {
+        const socket = new net.Socket();
+        socket.setTimeout(timeoutMs);
+        socket.once('connect', () => { socket.destroy(); resolve(true); });
+        socket.once('timeout', () => { socket.destroy(); resolve(false); });
+        socket.once('error', () => { socket.destroy(); resolve(false); });
+        socket.connect(port, host);
+    });
+}
+
 // Initialize the workflow runtime and client on demand
 async function initializeWorkflow(): Promise<void> {
     if (workflowInitialized) {
         return;
     }
 
-    console.log("Initializing workflow runtime and client...");
-
     const daprHost = "localhost";
     const daprPort = "50001";
+
+    // Pre-check: ensure Dapr sidecar is reachable before attempting gRPC connection
+    const daprAvailable = await checkPort(daprHost, parseInt(daprPort));
+    if (!daprAvailable) {
+        throw new Error(
+            `Dapr sidecar is not reachable on ${daprHost}:${daprPort}. ` +
+            `Start the application with 'make start' to run with the Dapr sidecar.`
+        );
+    }
+
+    console.log("Initializing workflow runtime and client...");
 
     workflowClient = new DaprWorkflowClient({
         daprHost,
