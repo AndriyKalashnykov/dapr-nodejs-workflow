@@ -5,21 +5,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Install dependencies
-pnpm install
-
-# Build (compiles TypeScript to dist/)
-pnpm build
-
-# Start the API server directly (no Dapr sidecar)
-pnpm run start:api-server
-
-# Start with Dapr sidecar (required for workflow functionality)
-pnpm run start:dapr:api-server
-
-# Start PostgreSQL via Docker
-./run-postgres.sh
+make deps           # Check/install node, pnpm, docker, dapr, git
+make install        # Install npm dependencies (pnpm install)
+make build          # Compile TypeScript to dist/
+make start          # Build and start API server with Dapr sidecar
+make stop           # Stop the Dapr sidecar and API server
+make start-no-dapr  # Build and start API server without Dapr (HTTP only)
+make postgres-start # Start PostgreSQL in Docker
+make postgres-stop  # Stop PostgreSQL Docker container
+make dapr-init      # Initialize Dapr (one-time; stops conflicting Redis first)
+make check-workflow # Trigger a test workflow and poll the result
+make check-db       # Run the database health check endpoint
+make ci             # Run GitHub Actions CI pipeline locally via act (requires Docker)
 ```
+
+The full test sequence with Dapr:
+1. `make dapr-init` (one-time setup)
+2. `docker start redis-container` (if redis-container exists but is stopped)
+3. `make postgres-start`
+4. `make start` (Terminal 1 — stays in foreground)
+5. `make check-workflow` or `make check-db` (Terminal 2)
+6. `make stop` → `make postgres-stop`
 
 The CI pipeline (`.github/workflows/ci.yml`) runs `pnpm install` and `pnpm build` only — there are no automated tests.
 
@@ -39,8 +45,8 @@ HTTP client → Express API (port 3000)
             WorkflowRuntime executes dataRequestWorkflow
                     ↓
             Activities (in sequence):
-              1. delayActivity       — simulates async wait (30s default)
-              2. modifyPayloadActivity — enriches the input payload
+              1. delayActivity            — simulates async wait (30s default)
+              2. modifyPayloadActivity    — enriches the input payload
               3. fetchPostgresDataActivity — calls Dapr binding HTTP API → PostgreSQL
 ```
 
@@ -73,4 +79,4 @@ HTTP client → Express API (port 3000)
 |----------|---------|---------|
 | `PORT` | `3000` | Express listen port |
 | `DAPR_HTTP_PORT` | `3500` | Dapr sidecar HTTP port (used in `fetchPostgresDataActivity`) |
-| `DAPR_HOST` | `localhost` | Set by the `start:dapr:api-server` script |
+| `DAPR_HOST` | `localhost` | Set by the `start` Makefile target |

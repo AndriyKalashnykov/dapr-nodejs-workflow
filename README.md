@@ -5,8 +5,8 @@
 * Linux OS
 * [Docker](https://www.docker.com/)
 * [Git](https://git-scm.com/downloads)
-* [Dapr](https://dapr.io/)
-* [Node.js](https://nodejs.org/en/)
+* [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
+* [Node.js](https://nodejs.org/en/) v22+
 * [pnpm](https://pnpm.io/)
 
 ## Clone the repository
@@ -16,37 +16,69 @@ mkdir ~/projects && cd ~/projects
 git clone git@github.com:AndriyKalashnykov/dapr-nodejs-workflow.git && cd ~/projects/dapr-nodejs-workflow
 ```
 
-## Install and Initialize Dapr in your local environment
-
-* [Install the Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/)
-* [Initialize Dapr in your local environment](https://docs.dapr.io/getting-started/install-dapr-selfhost/) 
-
-## Start PostgreSQL
+## Setup
 
 ```bash
-./run-postgres.sh
+# Check and install required dependencies
+make deps
+
+# Install npm dependencies
+make install
+
+# Initialize Dapr in your local environment (one-time)
+make dapr-init
 ```
 
 ## Running the example
 
+**With Dapr** (required for workflow functionality):
+
 ```bash
-# Install
-pnpm install
-pnpm build && pnpm run start:dapr:api-server
+# Terminal 1 — start PostgreSQL, then the API server with Dapr sidecar
+make postgres-start
+make start
+
+# Terminal 2 — trigger a test workflow and poll the result
+make check-workflow
+
+# Check database connectivity via a short-lived workflow
+make check-db
+
+# Stop the server and PostgreSQL
+make stop
+make postgres-stop
 ```
 
-Once the server is running, you can trigger a new activity sequence workflow by making a POST request to the `/process-payload` endpoint:
+**Without Dapr** (HTTP server only):
+
+```bash
+make start-no-dapr
+curl http://localhost:3000/
+```
+
+## API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Health check |
+| `POST` | `/process-payload` | Schedule a new workflow; returns `{ id }` immediately (202) |
+| `GET` | `/workflow/:id/status` | Poll workflow state; `output` only present when complete |
+| `GET` | `/db-health` | Schedule a workflow and wait up to 10s for DB result |
+
+### Example: trigger a workflow
+
 ```bash
 curl -X POST http://localhost:3000/process-payload \
   -H "Content-Type: application/json" \
   -d '{"name": "John Doe", "data": {"key1": "value1", "key2": "value2"}}'
+# → {"message":"...","id":"82236756-4f38-4b5f-9796-a1268184561e"}
 ```
 
-This will return a JSON response with the workflow ID, which you can then use to check the status when delayActivity called and pending:
+Poll status while the 30s delay activity is running (no `output` yet):
+
 ```bash
-curl http://localhost:3000/workflow/{workflow-id}/status | jq .
+curl http://localhost:3000/workflow/82236756-4f38-4b5f-9796-a1268184561e/status | jq .
 ```
-response would not have the `output` property
 ```json
 {
   "id": "82236756-4f38-4b5f-9796-a1268184561e",
@@ -56,28 +88,27 @@ response would not have the `output` property
 }
 ```
 
-and then you can check deleyActivity is done:
-```bash
-curl http://localhost:3000/workflow/{workflow-id}/status | jq .
-```
-response would have the `output` property
+After the workflow completes (`output` is present):
+
 ```json
 {
   "id": "82236756-4f38-4b5f-9796-a1268184561e",
   "status": "1",
-  "output": "{\"name\":\"John Doe\",\"data\":{\"key1\":\"value1\",\"key2\":\"value2\"},\"processed\":true,\"processedAt\":\"2025-09-16T16:35:21.171Z\",\"modified\":true,\"dbData\":[[1,\"2025-09-15T22:57:13.170558-04:00\",\"2025-09-15T22:57:13.170558-04:00\",null,\"john.doe@example.com\",\"hashed_password_1\",\"John\",\"Doe\",\"1980-01-01T00:00:00-05:00\",null,\"USA\",\"American\",null,false,null],[2,\"2025-09-15T22:57:13.170558-04:00\",\"2025-09-15T22:57:13.170558-04:00\",null,\"jane.smith@example.com\",\"hashed_password_2\",\"Jane\",\"Smith\",\"1985-05-15T00:00:00-04:00\",null,\"Canada\",\"Canadian\",null,true,null]]}",
+  "output": "{\"name\":\"John Doe\",\"processed\":true,...}",
   "createdAt": "2025-09-16T16:34:44.118Z",
   "lastUpdatedAt": "2025-09-16T16:35:21.199Z"
 }
-
 ```
 
-check DB status
+## CI
+
+Run the GitHub Actions CI pipeline locally (requires Docker):
+
 ```bash
-curl http://localhost:3000/db-health
+make ci
 ```
 
-### References
+## References
 
 * [Dapr Concepts](https://docs.dapr.io/concepts/)
 * [Dapr Workflows](https://docs.dapr.io/developing-applications/building-blocks/workflow/)
