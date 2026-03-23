@@ -21,7 +21,7 @@
     "@dapr/dapr-dev": "3.5.2-20250813010318-26e8be8",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@types/node": "^18.19.130",
+    "@types/node": "^24.0.0",
     "axios": "^1.13.6",
     "cors": "^2.8.6",
     "express": "^5.2.1"
