@@ -149,7 +149,7 @@ app.get('/workflow/:id/status', async (req: Request, res: Response<WorkflowStatu
         // Get the workflow client (initializing if necessary)
         const client = await getWorkflowClient();
 
-        const id = req.params.id;
+        const id = req.params.id as string;
         const state: WorkflowState | undefined = await client.getWorkflowState(id, true);
 
         if (!state) {

@@ -1,0 +1,55 @@
+{
+  "env": {
+    "GIT_AUTHOR_NAME": "Claude",
+    "GIT_AUTHOR_EMAIL": "noreply@anthropic.com"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch(*)",
+      "WebSearch(*)",
+      "Agent(*)",
+      "Skill(*)",
+      "mcp__claude-in-chrome__*",
+      "Bash(gh *)",
+      "Bash(npx tsc:*)",
+      "Bash(fuser 3000/tcp)",
+      "Bash(jobs -l)",
+      "Bash(PORT=3001 make check-workflow 2>&1)",
+      "Bash(PORT=3001 make check-workflow)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(PORT=3001 make check-db)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm --version)",
+      "Bash(pnpm config:*)",
+      "Bash(dapr status:*)",
+      "Read(//home/andriy/.dapr/**)",
+      "Bash(dapr --version)",
+      "Bash(dapr uninstall:*)",
+      "Bash(docker port:*)",
+      "Bash(docker restart:*)",
+      "Bash(1 sleep:*)",
+      "Bash(grep dapr_redis redis-cli -h localhost -p 6379 ping)",
+      "Bash(docker exec:*)",
+      "Bash(1 ss:*)",
+      "Bash(1 docker:*)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\)[0]; nets=d[''''NetworkSettings''''][''''Networks'''']; [print\\(k, v[''''IPAddress'''']\\) for k,v in nets.items\\(\\)]\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\)[0]; print\\(json.dumps\\(d[''''NetworkSettings''''], indent=2\\)\\)\")",
+      "Bash(docker start:*)",
+      "Bash(dapr stop:*)",
+      "Bash(command -v act)"
+    ]
+  },
+  "experiments": {
+    "claude_code_experimental_agents_teams": true
+  },
+  "agentsTeams": {
+    "tmuxSplitPanes": true
+  }
+}

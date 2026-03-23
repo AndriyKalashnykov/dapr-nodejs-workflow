@@ -1,0 +1,78 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "group:monorepos",
+    "group:recommended",
+    "replacements:all",
+    "workarounds:all"
+  ],
+  "labels": ["dependencies"],
+  "assignAutomerge": true,
+  "platformAutomerge": true,
+  "automerge": true,
+  "automergeType": "pr",
+  "automergeStrategy": "squash",
+  "ignoreTests": false,
+  "packageRules": [
+    {
+      "description": "Group all Next.js related packages",
+      "matchPackageNames": ["next", "eslint-config-next"],
+      "groupName": "Next.js"
+    },
+    {
+      "description": "Group all React packages",
+      "matchPackageNames": ["react", "react-dom", "@types/react", "@types/react-dom"],
+      "groupName": "React"
+    },
+    {
+      "description": "Group Dapr SDK updates",
+      "matchPackageNames": ["@dapr/dapr"],
+      "groupName": "Dapr SDK"
+    },
+    {
+      "description": "Group OpenTelemetry packages",
+      "matchPackageNames": ["@opentelemetry/**"],
+      "groupName": "OpenTelemetry"
+    },
+    {
+      "description": "Group Knex and database packages",
+      "matchPackageNames": ["knex", "pg", "@types/pg"],
+      "groupName": "Database"
+    },
+    {
+      "description": "Group Vite packages",
+      "matchPackageNames": ["vite", "@vitejs/**"],
+      "groupName": "Vite"
+    },
+    {
+      "description": "Group Docker base images",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "groupName": "Docker base images"
+    },
+    {
+      "description": "Group Node.js version updates",
+      "matchPackageNames": ["node"],
+      "matchManagers": ["dockerfile", "docker-compose", "nvm", "nodenv"],
+      "groupName": "Node.js"
+    },
+    {
+      "description": "Label major updates",
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "breaking-change"]
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "labels": ["security"],
+    "automerge": true
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true
+  },
+  "npm": {
+    "minimumReleaseAge": "3 days"
+  }
+}
