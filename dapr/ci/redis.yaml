@@ -1,4 +1,4 @@
-# CI-specific Dapr state store for Redis (GitHub Actions service container)
+# CI-specific Dapr state store for Redis (provided by dapr init)
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:

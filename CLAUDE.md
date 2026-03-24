@@ -71,10 +71,10 @@ src/
 components/
   postgres.yaml              bindings.postgres binding named postgres-db (local dev)
   redis.yaml                 state.redis state store named state-redis (local dev)
-  ci/
-    postgres.yaml            CI-specific postgres binding (password: postgres)
-    redis.yaml               CI-specific redis state store
-docker-compose.yaml          Podman Compose — Redis + PostgreSQL for local development
+dapr/ci/
+  postgres.yaml              CI-specific postgres binding (password: postgres)
+  redis.yaml                 CI-specific redis state store
+docker-compose.yaml          Podman/Docker Compose — Redis + PostgreSQL for local development
 ```
 
 ### Request Flow

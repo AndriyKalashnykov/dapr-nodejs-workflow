@@ -168,35 +168,13 @@ jobs:
       - name: Install Dapr CLI
         uses: dapr/setup-dapr@v2
 
-      - name: Initialize Dapr (Docker containers for Redis, placement, scheduler)
-        run: dapr init
-
       - name: Seed database
-        run: |
-          psql -h localhost -U postgres -d postgres -f db/baseline_ddl.sql
-          psql -h localhost -U postgres -d postgres -f db/baseline_dml.sql
-        env:
-          PGPASSWORD: postgres
+        run: make ci-seed-db
 
-      - name: Build
-        run: make ci-build
-
-      - name: Start server with Dapr sidecar
+      - name: Build and start server with Dapr
         run: |
-          DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
-          dapr run \
-            --app-id workflow-api \
-            --app-port 3000 \
-            --app-protocol http \
-            --dapr-grpc-port 50001 \
-            --dapr-http-port 3500 \
-            --resources-path ./components/ci \
-            --log-level warn \
-            -- node dist/api-server.js > /tmp/dapr-run.log 2>&1 &
-          echo "Waiting for API server on :3000..."
-          timeout 30 bash -c \
-            'until curl -sf http://localhost:3000/ > /dev/null; do sleep 1; done' \
-            || { echo "=== dapr run log ==="; cat /tmp/dapr-run.log; exit 1; }
+          make ci-build
+          make ci-dapr-start
 
       - name: Integration tests
         run: make ci-test-integration

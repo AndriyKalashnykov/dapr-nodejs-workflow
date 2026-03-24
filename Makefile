@@ -249,6 +249,34 @@ ci-smoke: ci-build
 ci-test-integration: ci-install
 	pnpm exec vitest run --config vitest.integration.config.ts --reporter=verbose
 
+#ci-seed-db: @ Seed PostgreSQL with baseline schema and data (CI only)
+ci-seed-db:
+	PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f db/baseline_ddl.sql
+	PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f db/baseline_dml.sql
+
+#ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
+ci-dapr-start:
+	dapr init
+	DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
+	dapr run \
+		--app-id workflow-api \
+		--app-port 3000 \
+		--app-protocol http \
+		--dapr-grpc-port 50001 \
+		--dapr-http-port 3500 \
+		--resources-path ./dapr/ci \
+		--log-level warn \
+		-- node dist/api-server.js > /tmp/dapr-run.log 2>&1 &
+	@echo "Waiting for Dapr sidecar on :3500..."
+	@timeout 30 bash -c \
+		'until curl -sf http://localhost:3500/v1.0/healthz > /dev/null; do sleep 1; done' \
+		|| { echo "=== dapr run log ==="; cat /tmp/dapr-run.log; exit 1; }
+	@echo "Waiting for API server on :3000..."
+	@timeout 15 bash -c \
+		'until curl -sf http://localhost:3000/ > /dev/null; do sleep 1; done' \
+		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run.log; exit 1; }
+	@echo "Dapr sidecar and API server are ready."
+
 #audit: @ Audit dependencies for known vulnerabilities
 audit:
 	pnpm audit --audit-level=high
