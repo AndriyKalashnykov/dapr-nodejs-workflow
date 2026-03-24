@@ -190,26 +190,29 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - name: Start Dapr placement and scheduler
+      - name: Start Dapr infrastructure
         run: |
           export PATH="$HOME/.dapr/bin:$PATH"
-          placement --port 50005 > /tmp/placement.log 2>&1 &
+
+          # Start placement (metrics on 9091 to avoid conflict with daprd on 9090)
+          placement --port 50005 --metrics-port 9091 \
+            > /tmp/placement.log 2>&1 &
+
+          # Start scheduler if available (metrics on 9092)
+          SCHEDULER_ARGS=""
           if command -v scheduler > /dev/null 2>&1; then
-            scheduler --port 50006 --etcd-data-dir /tmp/dapr-scheduler-data \
+            scheduler --port 50006 --metrics-port 9092 \
+              --etcd-data-dir /tmp/dapr-scheduler-data \
               > /tmp/scheduler.log 2>&1 &
+            SCHEDULER_ARGS="--scheduler-host-address localhost:50006"
             echo "Placement and scheduler started"
           else
             echo "Placement started (scheduler binary not available)"
           fi
-          sleep 3
 
-      - name: Start Dapr sidecar
-        run: |
-          export PATH="$HOME/.dapr/bin:$PATH"
-          SCHEDULER_ARGS=""
-          if command -v scheduler > /dev/null 2>&1; then
-            SCHEDULER_ARGS="--scheduler-host-address localhost:50006"
-          fi
+          sleep 5
+
+          # Start daprd sidecar (metrics on default 9090)
           daprd \
             --app-id workflow-api \
             --app-port 3000 \
@@ -221,10 +224,11 @@ jobs:
             --resources-path ./components/ci \
             --log-level warn \
             > /tmp/daprd.log 2>&1 &
+
           echo "Waiting for Dapr sidecar on :3500..."
           timeout 30 bash -c \
             'until curl -sf http://localhost:3500/v1.0/healthz > /dev/null; do sleep 1; done' \
-            || { echo "=== daprd log ==="; cat /tmp/daprd.log; echo "=== placement log ==="; cat /tmp/placement.log; exit 1; }
+            || { echo "=== daprd log ==="; cat /tmp/daprd.log; echo "=== placement log ==="; cat /tmp/placement.log; echo "=== scheduler log ==="; cat /tmp/scheduler.log 2>/dev/null; exit 1; }
 
       - name: Build and start server
         run: |
