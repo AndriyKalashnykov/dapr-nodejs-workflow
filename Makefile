@@ -95,13 +95,16 @@ build: install
 lint: install
 	pnpm exec eslint src/
 
-#test: @ Run unit tests
-test: install
+#test: @ Run unit tests (lints first)
+test: lint
 	pnpm exec vitest run
 
 #test-watch: @ Run unit tests in watch mode
 test-watch: install
 	pnpm exec vitest
+
+#check: @ Run full local verification (lint, build, test)
+check: lint build test
 
 #update: @ Update dependencies to latest allowed versions
 update: deps

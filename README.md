@@ -115,8 +115,9 @@ Run `make help` to list all available targets. Summary:
 | `make install` | Install npm dependencies (`pnpm install`) |
 | `make build` | Compile TypeScript to `dist/` |
 | `make lint` | Run ESLint on source files |
-| `make test` | Run unit tests (Vitest) |
+| `make test` | Run unit tests (lints first) |
 | `make test-watch` | Run unit tests in watch mode |
+| `make check` | Run full local verification (lint, build, test) |
 | `make start` | Build and start the API server with Dapr sidecar |
 | `make stop` | Stop the Dapr sidecar and API server |
 | `make start-no-dapr` | Build and start the API server without Dapr (HTTP only) |
