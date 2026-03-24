@@ -125,6 +125,9 @@ Run `make help` to list all available targets. Summary:
 | `make clean` | Remove build artifacts and `node_modules` |
 | `make update` | Update dependencies to latest allowed versions |
 | `make upgrade` | Upgrade dependencies to latest versions (ignoring ranges) |
+| `make ci-install` | Install dependencies with frozen lockfile (CI only, skips system deps) |
+| `make ci-build` | Build TypeScript in CI (frozen lockfile, no system deps) |
+| `make audit` | Audit dependencies for known vulnerabilities |
 | `make ci` | Run GitHub Actions CI pipeline locally via `act` (requires Docker) |
 | `make release VERSION=vX.Y.Z` | Create and push a release tag |
 | `make renovate` | Run Renovate locally in dry-run mode |

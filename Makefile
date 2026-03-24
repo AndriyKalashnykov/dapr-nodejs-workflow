@@ -174,6 +174,18 @@ tag-release: check-version
 	@git push
 	@echo "Done."
 
+#ci-install: @ Install dependencies with frozen lockfile (CI only, skips system deps)
+ci-install:
+	pnpm install --frozen-lockfile
+
+#ci-build: @ Build TypeScript in CI (frozen lockfile, no system deps)
+ci-build: ci-install
+	pnpm build
+
+#audit: @ Audit dependencies for known vulnerabilities
+audit:
+	pnpm audit --audit-level=high
+
 #ci: @ Run CI pipeline locally using act (requires Docker)
 ci:
 	@command -v act >/dev/null 2>&1 || { echo "ERROR: act not found. Install from https://github.com/nektos/act"; exit 1; }

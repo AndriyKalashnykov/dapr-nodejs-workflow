@@ -39,12 +39,9 @@ jobs:
           node-version-file: ".nvmrc"
           cache: "pnpm"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Build
-        run: pnpm build
+        run: make ci-build
 
       - name: Audit dependencies
-        run: pnpm audit --audit-level=high
+        run: make audit
         continue-on-error: true
