@@ -19,7 +19,7 @@ docker run \
   -v "./db/baseline_dml.sql:/docker-entrypoint-initdb.d/fill_tables.sql" \
   --rm \
   -d \
-  postgres:15.0-alpine
+  postgres:18.3-alpine
 
 echo "Database started successfully."
 echo "Connect using: psql -h localhost -U $DB_USER -P $DB_PASSSWORD -d postgres"
