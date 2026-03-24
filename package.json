@@ -11,10 +11,10 @@
   "author": "Andriy Kalashnykov",
   "license": "ISC",
   "devDependencies": {
-    "@types/readline-sync": "^1.4.8",
-    "readline-sync": "^1.4.10",
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.2"
+    "@types/readline-sync": "1.4.8",
+    "readline-sync": "1.4.10",
+    "ts-node": "10.9.2",
+    "typescript": "6.0.2"
   },
   "dependencies": {
     "@dapr/dapr": "^3.6.1",
