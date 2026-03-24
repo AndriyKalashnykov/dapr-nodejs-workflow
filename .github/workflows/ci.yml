@@ -126,3 +126,16 @@ jobs:
 
       - name: Smoke test
         run: make ci-smoke
+
+  # ── Gate ───────────────────────────────────────────────────────────────────
+  ci-pass:
+    name: CI ✓
+    if: always()
+    needs: [build, lint, test, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "One or more jobs failed"
+            exit 1
+          fi
