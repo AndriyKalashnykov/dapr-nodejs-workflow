@@ -257,8 +257,8 @@ ci-seed-db:
 
 #ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
 ci-dapr-start:
-	@dapr init && \
-	DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
+	dapr init
+	@DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
 	nohup dapr run \
 		--app-id workflow-api \
 		--app-port 3000 \
