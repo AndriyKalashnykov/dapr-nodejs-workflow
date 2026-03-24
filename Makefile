@@ -9,7 +9,7 @@ help:
 	@echo "Commands :"
 	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-16s\033[0m - %s\n", $$1, $$2}'
 
-#deps: @ Check and install required dependencies (node, pnpm, docker, dapr, git)
+#deps: @ Check and install required dependencies (node, pnpm, podman, dapr, git)
 deps:
 	@echo "Checking dependencies..."
 	@command -v node >/dev/null 2>&1 || { echo "Installing Node.js via nvm..."; \
@@ -29,9 +29,41 @@ deps:
 			npm install -g pnpm; \
 		fi; \
 	}
-	@command -v docker >/dev/null 2>&1 || echo "WARNING: docker is not installed. Install from https://docs.docker.com/get-docker/"
-	@command -v dapr >/dev/null 2>&1 || echo "WARNING: dapr CLI is not installed. Install from https://docs.dapr.io/getting-started/install-dapr-cli/"
-	@command -v git >/dev/null 2>&1 || echo "WARNING: git is not installed. Install from https://git-scm.com/downloads"
+	@command -v podman >/dev/null 2>&1 || { echo "Installing Podman..."; \
+		if command -v apt-get >/dev/null 2>&1; then \
+			sudo apt-get update && sudo apt-get install -y podman; \
+		elif command -v dnf >/dev/null 2>&1; then \
+			sudo dnf install -y podman; \
+		elif command -v brew >/dev/null 2>&1; then \
+			brew install podman; \
+		else \
+			echo "ERROR: Could not install podman. Install manually from https://podman.io/getting-started/installation"; exit 1; \
+		fi; \
+	}
+	@command -v dapr >/dev/null 2>&1 || { echo "Installing Dapr CLI..."; \
+		if [ "$$(uname)" = "Linux" ]; then \
+			wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash; \
+		elif [ "$$(uname)" = "Darwin" ]; then \
+			if command -v brew >/dev/null 2>&1; then \
+				brew install dapr/tap/dapr-cli; \
+			else \
+				curl -fsSL https://raw.githubusercontent.com/dapr/cli/master/install/install.sh | /bin/bash; \
+			fi; \
+		else \
+			echo "ERROR: Could not install dapr CLI. Install manually from https://docs.dapr.io/getting-started/install-dapr-cli/"; exit 1; \
+		fi; \
+	}
+	@command -v git >/dev/null 2>&1 || { echo "Installing git..."; \
+		if command -v apt-get >/dev/null 2>&1; then \
+			sudo apt-get update && sudo apt-get install -y git; \
+		elif command -v dnf >/dev/null 2>&1; then \
+			sudo dnf install -y git; \
+		elif command -v brew >/dev/null 2>&1; then \
+			brew install git; \
+		else \
+			echo "ERROR: Could not install git. Install manually from https://git-scm.com/downloads"; exit 1; \
+		fi; \
+	}
 	@echo "All dependencies checked."
 
 #clean: @ Remove build artifacts and node_modules

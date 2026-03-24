@@ -105,6 +105,30 @@ After the workflow completes (`output` is present):
 }
 ```
 
+## Makefile Reference
+
+Run `make help` to list all available targets. Summary:
+
+| Target | Description |
+|--------|-------------|
+| `make deps` | Check and install required dependencies (node, pnpm, podman, dapr, git) |
+| `make install` | Install npm dependencies (`pnpm install`) |
+| `make build` | Compile TypeScript to `dist/` |
+| `make start` | Build and start the API server with Dapr sidecar |
+| `make stop` | Stop the Dapr sidecar and API server |
+| `make start-no-dapr` | Build and start the API server without Dapr (HTTP only) |
+| `make postgres-start` | Start PostgreSQL in Podman |
+| `make postgres-stop` | Stop PostgreSQL container |
+| `make dapr-init` | Initialize Dapr in local environment (one-time) |
+| `make check-workflow` | Trigger a test workflow and poll the result |
+| `make check-db` | Run the database health check endpoint |
+| `make clean` | Remove build artifacts and `node_modules` |
+| `make update` | Update dependencies to latest allowed versions |
+| `make upgrade` | Upgrade dependencies to latest versions (ignoring ranges) |
+| `make ci` | Run GitHub Actions CI pipeline locally via `act` (requires Docker) |
+| `make release VERSION=vX.Y.Z` | Create and push a release tag |
+| `make renovate` | Run Renovate locally in dry-run mode |
+
 ## CI
 
 Run the GitHub Actions CI pipeline locally (requires Docker):

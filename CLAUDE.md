@@ -2,24 +2,40 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Commands
+## Project Overview
 
+Dapr Workflow demo using the Dapr JS SDK with an Express HTTP API frontend. A single Node.js/TypeScript service runs alongside a Dapr sidecar that orchestrates durable workflows with PostgreSQL and Redis backends. Container runtime is Podman (Docker-compatible).
+
+## Common Commands
+
+### Makefile (run `make help` for full list)
 ```bash
-make deps           # Check/install node, pnpm, docker, dapr, git
-make install        # Install npm dependencies (pnpm install)
-make build          # Compile TypeScript to dist/
-make start          # Build and start API server with Dapr sidecar
-make stop           # Stop the Dapr sidecar and API server
-make start-no-dapr  # Build and start API server without Dapr (HTTP only)
-make postgres-start # Start PostgreSQL in Docker
-make postgres-stop  # Stop PostgreSQL Docker container
-make dapr-init      # Initialize Dapr (one-time; stops conflicting Redis first)
-make check-workflow # Trigger a test workflow and poll the result
-make check-db       # Run the database health check endpoint
-make ci             # Run GitHub Actions CI pipeline locally via act (requires Docker)
+# Setup (first time)
+make deps && make install && make dapr-init
+
+# Build
+make build              # Compile TypeScript to dist/
+
+# Start / stop
+make start              # Build and start API server with Dapr sidecar (foreground)
+make stop               # Stop the Dapr sidecar and API server
+make start-no-dapr      # Build and start API server without Dapr (HTTP only)
+
+# Database
+make postgres-start     # Start PostgreSQL in Podman
+make postgres-stop      # Stop PostgreSQL container
+
+# Verify
+make check-workflow     # Trigger a test workflow and poll the result
+make check-db           # Run the database health check endpoint
+
+# Maintenance
+make clean              # Remove build artifacts and node_modules
+make ci                 # Run GitHub Actions CI pipeline locally via act
+make release VERSION=v1.0.0  # Tag and push a release
 ```
 
-The full test sequence with Dapr:
+### Full Test Sequence with Dapr
 1. `make dapr-init` (one-time setup)
 2. `docker start redis-container` (if redis-container exists but is stopped)
 3. `make postgres-start`
@@ -27,14 +43,19 @@ The full test sequence with Dapr:
 5. `make check-workflow` or `make check-db` (Terminal 2)
 6. `make stop` → `make postgres-stop`
 
-The CI pipeline (`.github/workflows/ci.yml`) runs `make install` and `make build` only — there are no automated tests.
-
 ## Architecture
 
-This is a **Dapr Workflow** demo using the Dapr JS SDK with an Express HTTP API frontend.
+### Project Layout
+```
+src/
+  api-server.ts              Express app, lazy-init WorkflowRuntime + DaprWorkflowClient
+  data-request-workflow.ts   dataRequestWorkflow generator and all activities
+components/
+  postgres.yaml              bindings.postgres binding named postgres-db
+  redis.yaml                 state.redis state store named state-redis (actor/workflow state)
+```
 
-### Request flow
-
+### Request Flow
 ```
 HTTP client → Express API (port 3000)
                     ↓
@@ -50,33 +71,66 @@ HTTP client → Express API (port 3000)
               3. fetchPostgresDataActivity — calls Dapr binding HTTP API → PostgreSQL
 ```
 
-### Key files
+### Dapr Sidecar Pattern
+The app runs as two processes: Express API + Dapr sidecar. The sidecar manages:
+- **State**: Redis via `state-redis` component — used as Dapr's actor/workflow state backend (required by the runtime even if not queried directly)
+- **Bindings**: PostgreSQL via `postgres-db` component — the workflow queries it via direct HTTP POST to `http://localhost:{DAPR_HTTP_PORT}/v1.0/bindings/postgres-db`
 
-- `src/api-server.ts` — Express app, lazy-initializes `WorkflowRuntime` and `DaprWorkflowClient` on first request, exposes three endpoints
-- `src/data-request-workflow.ts` — defines the `dataRequestWorkflow` generator and all four activities
+The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first API request. If the Dapr sidecar is unreachable on gRPC port 50001, the app returns an error directing the user to run `make start`.
 
-### Dapr components (`components/`)
-
-- `postgres.yaml` — `bindings.postgres` binding named `postgres-db`; the workflow queries it via direct HTTP POST to `http://localhost:{DAPR_HTTP_PORT}/v1.0/bindings/postgres-db`
-- `redis.yaml` — `state.redis` state store named `state-redis`; used as Dapr's actor/workflow state backend (required by the runtime even if not queried directly)
-
-### Workflow pattern
-
+### Workflow Pattern
 `dataRequestWorkflow` is a `TWorkflow` async generator. Steps are composed with `yield ctx.callActivity(...)`. The workflow is **durable** — Dapr replays it from state on restart. Activities must be **deterministic** in their side effects.
 
-### API endpoints
+### Service Ports
+
+| Service | Port | Protocol | Access |
+|---------|------|----------|--------|
+| Express API | 3000 | HTTP | `http://localhost:3000` |
+| Dapr sidecar | 3500 | HTTP | Used by `fetchPostgresDataActivity` for binding calls |
+| Dapr sidecar | 50001 | gRPC | Used by `DaprWorkflowClient` / `WorkflowRuntime` |
+| PostgreSQL | 5432 | TCP | `postgresql://postgres:daprrulz@localhost:5432/postgres` |
+| Redis | 6379 | TCP | Dapr state store backend |
+
+### API Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/` | Health check |
+| `GET` | `/` | Health check — returns `{ message }` |
 | `POST` | `/process-payload` | Schedules a new workflow; returns `{ id }` immediately (202) |
 | `GET` | `/workflow/:id/status` | Polls workflow state; `output` only present when complete |
 | `GET` | `/db-health` | Schedules a workflow and waits up to 10s for completion |
 
-### Environment variables
+### CI Pipeline (`.github/workflows/ci.yml`)
+The CI pipeline runs `make install` and `make build` only — there are no automated tests. To run CI locally: `make ci` (requires `act` and Docker).
+
+## Key Environment Variables
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `PORT` | `3000` | Express listen port |
 | `DAPR_HTTP_PORT` | `3500` | Dapr sidecar HTTP port (used in `fetchPostgresDataActivity`) |
 | `DAPR_HOST` | `localhost` | Set by the `start` Makefile target |
+
+## Workflow Rules
+
+### Before Every Commit
+Verify locally before committing and pushing:
+```bash
+make build              # compile TypeScript
+make start              # start with Dapr sidecar (Terminal 1)
+make check-workflow     # trigger a workflow (Terminal 2)
+make check-db           # verify database health (Terminal 2)
+make stop               # stop the stack
+```
+
+Verify these URLs are reachable when the stack is running:
+- `http://localhost:3000` — health check returns JSON
+- `http://localhost:3000/db-health` — database health returns JSON with `status: "success"`
+
+After pushing, watch the remote CI run to confirm it passes:
+```bash
+gh run watch            # watch the latest CI run
+```
+
+### Keep Documentation Up to Date
+After any code or configuration change, review and update the project's `*.md` files if affected. This includes `README.md`, `CLAUDE.md`, and Dapr component configs. Command references, architecture descriptions, port tables, and environment variable tables must stay in sync with the code.
