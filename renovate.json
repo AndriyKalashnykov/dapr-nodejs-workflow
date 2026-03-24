@@ -1,51 +1,33 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended",
-    ":dependencyDashboard",
-    ":semanticCommits",
-    "group:monorepos",
-    "group:recommended",
-    "replacements:all",
-    "workarounds:all"
+    "config:best-practices",
+    ":semanticCommits"
   ],
   "labels": ["dependencies"],
-  "assignAutomerge": true,
-  "platformAutomerge": true,
   "automerge": true,
   "automergeType": "pr",
   "automergeStrategy": "squash",
+  "platformAutomerge": true,
   "ignoreTests": false,
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 3,
   "packageRules": [
     {
-      "description": "Group all Next.js related packages",
-      "matchPackageNames": ["next", "eslint-config-next"],
-      "groupName": "Next.js"
+      "description": "Automerge all dependencies that pass checks",
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "automerge": true
     },
     {
-      "description": "Group all React packages",
-      "matchPackageNames": ["react", "react-dom", "@types/react", "@types/react-dom"],
-      "groupName": "React"
+      "description": "Automerge major updates that pass checks",
+      "matchUpdateTypes": ["major"],
+      "automerge": true,
+      "labels": ["dependencies", "breaking-change"]
     },
     {
       "description": "Group Dapr SDK updates",
       "matchPackageNames": ["@dapr/dapr"],
       "groupName": "Dapr SDK"
-    },
-    {
-      "description": "Group OpenTelemetry packages",
-      "matchPackageNames": ["@opentelemetry/**"],
-      "groupName": "OpenTelemetry"
-    },
-    {
-      "description": "Group Knex and database packages",
-      "matchPackageNames": ["knex", "pg", "@types/pg"],
-      "groupName": "Database"
-    },
-    {
-      "description": "Group Vite packages",
-      "matchPackageNames": ["vite", "@vitejs/**"],
-      "groupName": "Vite"
     },
     {
       "description": "Group Docker base images",
@@ -57,11 +39,6 @@
       "matchPackageNames": ["node"],
       "matchManagers": ["dockerfile", "docker-compose", "nvm", "nodenv"],
       "groupName": "Node.js"
-    },
-    {
-      "description": "Label major updates",
-      "matchUpdateTypes": ["major"],
-      "labels": ["dependencies", "breaking-change"]
     }
   ],
   "vulnerabilityAlerts": {
