@@ -128,12 +128,15 @@ The CI pipeline runs on pushes and PRs to `main` with these jobs:
 - **lint**: `make ci-lint` (ESLint with typescript-eslint strict rules)
 - **test**: `make ci-test` (Vitest unit tests for activities and utilities)
 - **smoke**: `make ci-smoke` (builds, starts the Express server without Dapr, verifies health endpoint)
-- **integration**: `make ci-test-integration` (PostgreSQL + Redis service containers, Dapr sidecar via `dapr init --slim`, full-stack Vitest integration tests)
+- **integration**: `make ci-seed-db` + `make ci-dapr-start` + `make ci-test-integration` (PostgreSQL service container, Dapr CLI v1.17.0 via `dapr init`, full-stack Vitest integration tests)
 - **ci-pass**: gate job — fails if any upstream job fails
 
 Job dependencies: `lint` → `test` → `smoke` + `integration`, `build` → `smoke` + `integration`.
 
-Concurrency control cancels redundant runs for the same ref. To run CI locally: `make ci` (requires `act` and Docker).
+Concurrency control cancels redundant runs for the same ref.
+
+**Local CI testing**:
+- `make ci` — runs build, lint, test, smoke jobs locally via `act` (requires Docker). The integration job requires service containers which `act` does not support; test integration locally with `make up` + `make start` + `make test-integration`.
 
 ## Key Environment Variables
 

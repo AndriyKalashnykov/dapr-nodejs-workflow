@@ -287,7 +287,7 @@ ci-dapr-start:
 audit:
 	pnpm audit --audit-level=high
 
-#ci: @ Run CI pipeline locally using act (requires Docker)
+#ci: @ Run CI pipeline locally using act (build, lint, test, smoke — requires Docker)
 ci: deps
 	act push --job build --job lint --job test --job smoke
 

@@ -15,6 +15,7 @@ permissions:
 
 env:
   PNPM_VERSION: 10
+  DAPR_CLI_VERSION: 1.17.0
 
 jobs:
   # ── Build ─────────────────────────────────────────────────────────────────────
@@ -167,48 +168,16 @@ jobs:
 
       - name: Install Dapr CLI
         uses: dapr/setup-dapr@v2
-
-      - name: Initialize Dapr
-        run: dapr init
+        with:
+          version: ${{ env.DAPR_CLI_VERSION }}
 
       - name: Seed database
         run: make ci-seed-db
 
-      - name: Build
-        run: make ci-build
-
-      - name: Start server with Dapr sidecar
+      - name: Build and start Dapr + server
         run: |
-          DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
-          nohup dapr run \
-            --app-id workflow-api \
-            --app-port 3000 \
-            --app-protocol http \
-            --dapr-grpc-port 50001 \
-            --dapr-http-port 3500 \
-            --scheduler-host-address localhost:50006 \
-            --resources-path ./dapr/ci \
-            --log-level warn \
-            -- node dist/api-server.js > /tmp/dapr-run.log 2>&1 &
-          echo "Waiting for Dapr sidecar on :3500..."
-          timeout 30 bash -c \
-            'until curl -sf http://localhost:3500/v1.0/healthz > /dev/null; do sleep 1; done' \
-            || { echo "=== dapr run log ==="; cat /tmp/dapr-run.log; exit 1; }
-          echo "Waiting for Dapr gRPC on :50001..."
-          timeout 15 bash -c \
-            'until nc -z localhost 50001 2>/dev/null; do sleep 1; done' \
-            || { echo "gRPC port 50001 not available"; exit 1; }
-          echo "Waiting for API server on :3000..."
-          timeout 15 bash -c \
-            'until curl -sf http://localhost:3000/ > /dev/null; do sleep 1; done' \
-            || { echo "Server failed to start"; tail -20 /tmp/dapr-run.log; exit 1; }
-          echo "All services ready."
-
-      - name: Verify Dapr sidecar is alive
-        run: |
-          curl -sf http://localhost:3500/v1.0/healthz && echo "Dapr HTTP OK"
-          nc -z localhost 50001 && echo "Dapr gRPC OK"
-          curl -sf http://localhost:3000/ && echo "API OK"
+          make ci-build
+          make ci-dapr-start
 
       - name: Integration tests
         run: make ci-test-integration
