@@ -157,6 +157,7 @@ start: build
 		--app-protocol http \
 		--dapr-grpc-port 50001 \
 		--dapr-http-port 3500 \
+		--scheduler-host-address localhost:50006 \
 		--resources-path ./components \
 		-- node dist/api-server.js
 
@@ -264,6 +265,7 @@ ci-dapr-start:
 		--app-protocol http \
 		--dapr-grpc-port 50001 \
 		--dapr-http-port 3500 \
+		--scheduler-host-address localhost:50006 \
 		--resources-path ./dapr/ci \
 		--log-level warn \
 		-- node dist/api-server.js > /tmp/dapr-run.log 2>&1 & \
