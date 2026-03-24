@@ -91,6 +91,18 @@ install: deps
 build: install
 	pnpm build
 
+#lint: @ Run ESLint on source files
+lint: install
+	pnpm exec eslint src/
+
+#test: @ Run unit tests
+test: install
+	pnpm exec vitest run
+
+#test-watch: @ Run unit tests in watch mode
+test-watch: install
+	pnpm exec vitest
+
 #update: @ Update dependencies to latest allowed versions
 update: deps
 	pnpm update
@@ -194,13 +206,31 @@ ci-install:
 ci-build: ci-install
 	pnpm build
 
+#ci-lint: @ Run ESLint in CI (frozen lockfile, no system deps)
+ci-lint: ci-install
+	pnpm exec eslint src/
+
+#ci-test: @ Run unit tests in CI
+ci-test: ci-install
+	pnpm exec vitest run --reporter=verbose
+
+#ci-smoke: @ Run HTTP smoke test against built server
+ci-smoke: ci-build
+	@node dist/api-server.js & SERVER_PID=$$!; \
+	echo "Waiting for server on port 3000..."; \
+	timeout 10 bash -c 'until curl -sf http://localhost:3000/ > /dev/null; do sleep 1; done' || { echo "Server failed to start"; kill $$SERVER_PID 2>/dev/null; exit 1; }; \
+	echo "Server is up, running smoke tests..."; \
+	curl -sf http://localhost:3000/ | grep -q "Dapr Workflow API" || { echo "Health check failed"; kill $$SERVER_PID; exit 1; }; \
+	echo "Smoke tests passed"; \
+	kill $$SERVER_PID 2>/dev/null
+
 #audit: @ Audit dependencies for known vulnerabilities
 audit:
 	pnpm audit --audit-level=high
 
 #ci: @ Run CI pipeline locally using act (requires Docker)
 ci: deps
-	act push --job ci
+	act push --job build --job lint --job test --job smoke
 
 #renovate: @ Run Renovate locally in dry-run mode
 renovate: deps

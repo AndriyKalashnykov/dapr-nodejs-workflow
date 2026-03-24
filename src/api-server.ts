@@ -3,7 +3,6 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import {
     DaprWorkflowClient,
-    WorkflowContext,
     WorkflowRuntime,
     WorkflowState
 } from "@dapr/dapr";
@@ -102,7 +101,10 @@ async function getWorkflowClient(): Promise<DaprWorkflowClient> {
     if (!workflowInitialized) {
         await initializeWorkflow();
     }
-    return workflowClient!;
+    if (!workflowClient) {
+        throw new Error("Workflow client failed to initialize");
+    }
+    return workflowClient;
 }
 
 const app = express();
@@ -255,9 +257,9 @@ function startServer(): void {
 process.on('SIGINT', async () => {
     console.log('Shutting down gracefully...');
     try {
-        if (workflowInitialized) {
-            await workflowRuntime!.stop();
-            await workflowClient!.stop();
+        if (workflowInitialized && workflowRuntime && workflowClient) {
+            await workflowRuntime.stop();
+            await workflowClient.stop();
             console.log('Workflow runtime stopped');
         }
         process.exit(0);

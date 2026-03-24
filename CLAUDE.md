@@ -101,7 +101,13 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 | `GET` | `/db-health` | Schedules a workflow and waits up to 10s for completion |
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
-The CI pipeline runs on pushes and PRs to `main`. Steps: checkout, pnpm/node setup with cache, `make ci-build` (frozen lockfile install + TypeScript compile), and `make audit` (dependency vulnerability scan). There are no automated tests yet. Concurrency control cancels redundant runs for the same ref. To run CI locally: `make ci` (requires `act` and Docker).
+The CI pipeline runs on pushes and PRs to `main` with four parallel jobs:
+- **build**: `make ci-build` (frozen lockfile install + TypeScript compile) + `make audit` (dependency vulnerability scan)
+- **lint**: `make ci-lint` (ESLint with typescript-eslint strict rules)
+- **test**: `make ci-test` (Vitest unit tests for activities and utilities)
+- **smoke**: `make ci-smoke` (builds, starts the Express server without Dapr, verifies health endpoint)
+
+Concurrency control cancels redundant runs for the same ref. To run CI locally: `make ci` (requires `act` and Docker).
 
 ## Key Environment Variables
 

@@ -114,6 +114,9 @@ Run `make help` to list all available targets. Summary:
 | `make deps` | Check and install required dependencies (node, pnpm, podman, dapr, act, git) |
 | `make install` | Install npm dependencies (`pnpm install`) |
 | `make build` | Compile TypeScript to `dist/` |
+| `make lint` | Run ESLint on source files |
+| `make test` | Run unit tests (Vitest) |
+| `make test-watch` | Run unit tests in watch mode |
 | `make start` | Build and start the API server with Dapr sidecar |
 | `make stop` | Stop the Dapr sidecar and API server |
 | `make start-no-dapr` | Build and start the API server without Dapr (HTTP only) |
@@ -127,6 +130,9 @@ Run `make help` to list all available targets. Summary:
 | `make upgrade` | Upgrade dependencies to latest versions (ignoring ranges) |
 | `make ci-install` | Install dependencies with frozen lockfile (CI only, skips system deps) |
 | `make ci-build` | Build TypeScript in CI (frozen lockfile, no system deps) |
+| `make ci-lint` | Run ESLint in CI (frozen lockfile, no system deps) |
+| `make ci-test` | Run unit tests in CI |
+| `make ci-smoke` | Run HTTP smoke test against built server |
 | `make audit` | Audit dependencies for known vulnerabilities |
 | `make ci` | Run GitHub Actions CI pipeline locally via `act` (requires Docker) |
 | `make release VERSION=vX.Y.Z` | Create and push a release tag |

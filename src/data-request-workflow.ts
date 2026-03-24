@@ -1,12 +1,12 @@
 
-import { TWorkflow, WorkflowContext, WorkflowActivityContext, DaprClient, CommunicationProtocolEnum } from "@dapr/dapr";
+import { TWorkflow, WorkflowContext, WorkflowActivityContext } from "@dapr/dapr";
 import axios from 'axios';
 
 // Activity to modify the payload
 export const modifyPayloadActivity = async (
     _: WorkflowActivityContext,
-    payload: Record<string, any>
-): Promise<Record<string, any>> => {
+    payload: Record<string, unknown>
+): Promise<Record<string, unknown>> => {
     console.log(`Activity modifying payload: ${JSON.stringify(payload)}`);
     // Add a timestamp and processed flag to the payload
     const result = {
@@ -34,10 +34,10 @@ export const fetchPostgresDataActivity = async (
     _: WorkflowActivityContext,
     params: {
         query: string;
-        queryParams?: any[];
+        queryParams?: unknown[];
         storeName: string;
     }
-): Promise<any> => {
+): Promise<Record<string, unknown>> => {
     try {
         console.log(`Fetching data from Postgres with query: ${params.query}`);
 
@@ -62,8 +62,8 @@ export const fetchPostgresDataActivity = async (
         console.error(`Error fetching data from Postgres: ${error instanceof Error ? error.message : String(error)}`);
 
         // Add detailed diagnostic information
-        if (error instanceof Error && 'isAxiosError' in error && (error as any).isAxiosError) {
-            const axiosError = error as any;
+        if (axios.isAxiosError(error)) {
+            const axiosError = error;
             console.error(`Request failed with status ${axiosError.response?.status}`);
             console.error(`Error details: ${JSON.stringify(axiosError.response?.data || {})}`);
 
@@ -94,7 +94,7 @@ export const getFromStateStoreActivity = async (
         key: string;
         storeName: string;
     }
-): Promise<any> => {
+): Promise<unknown> => {
     try {
         console.log(`Getting data from state store: ${params.storeName} with key: ${params.key}`);
 
@@ -115,15 +115,15 @@ export const getFromStateStoreActivity = async (
 export const dataRequestWorkflow: TWorkflow = async function* (
     ctx: WorkflowContext,
     input: {
-        payload?: Record<string, any>;
-        query?: string ;
-        queryParams?: any[];
-        storeName?: string ;
+        payload?: Record<string, unknown>;
+        query?: string;
+        queryParams?: unknown[];
+        storeName?: string;
         resultKey?: string;
-        stateKey?: string; // Optional key for state store access
+        stateKey?: string;
         delayMs?: number;
     }
-): AsyncGenerator<any, Record<string, any>, any> {
+): AsyncGenerator<unknown, Record<string, unknown>, unknown> {
     try {
         // Set default values if not provided
         const payload = input.payload || {};
@@ -137,7 +137,7 @@ export const dataRequestWorkflow: TWorkflow = async function* (
         }
 
         // First, modify the payload with basic info
-        const modifiedPayload = yield ctx.callActivity(modifyPayloadActivity, payload);
+        const modifiedPayload = (yield ctx.callActivity(modifyPayloadActivity, payload)) as Record<string, unknown>;
 
         // If stateKey is provided, try to get data from state store
         if (input.stateKey && input.storeName) {
