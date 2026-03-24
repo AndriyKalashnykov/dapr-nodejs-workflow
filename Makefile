@@ -256,9 +256,9 @@ ci-seed-db:
 
 #ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
 ci-dapr-start:
-	dapr init
+	@dapr init && \
 	DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
-	dapr run \
+	nohup dapr run \
 		--app-id workflow-api \
 		--app-port 3000 \
 		--app-protocol http \
@@ -266,16 +266,20 @@ ci-dapr-start:
 		--dapr-http-port 3500 \
 		--resources-path ./dapr/ci \
 		--log-level warn \
-		-- node dist/api-server.js > /tmp/dapr-run.log 2>&1 &
-	@echo "Waiting for Dapr sidecar on :3500..."
-	@timeout 30 bash -c \
+		-- node dist/api-server.js > /tmp/dapr-run.log 2>&1 & \
+	echo "Waiting for Dapr sidecar on :3500..." && \
+	timeout 30 bash -c \
 		'until curl -sf http://localhost:3500/v1.0/healthz > /dev/null; do sleep 1; done' \
-		|| { echo "=== dapr run log ==="; cat /tmp/dapr-run.log; exit 1; }
-	@echo "Waiting for API server on :3000..."
-	@timeout 15 bash -c \
+		|| { echo "=== dapr run log ==="; cat /tmp/dapr-run.log; exit 1; } && \
+	echo "Waiting for Dapr gRPC on :50001..." && \
+	timeout 15 bash -c \
+		'until nc -z localhost 50001 2>/dev/null; do sleep 1; done' \
+		|| { echo "gRPC port 50001 not available"; exit 1; } && \
+	echo "Waiting for API server on :3000..." && \
+	timeout 15 bash -c \
 		'until curl -sf http://localhost:3000/ > /dev/null; do sleep 1; done' \
-		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run.log; exit 1; }
-	@echo "Dapr sidecar and API server are ready."
+		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run.log; exit 1; } && \
+	echo "Dapr sidecar and API server are ready."
 
 #audit: @ Audit dependencies for known vulnerabilities
 audit:
