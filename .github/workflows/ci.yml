@@ -137,7 +137,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:4da1a4828be12604092fa55311276f08f9224a74a62dcb4708bd7439e2a03911
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -167,7 +167,7 @@ jobs:
           cache: "pnpm"
 
       - name: Install Dapr CLI
-        uses: dapr/setup-dapr@v2
+        uses: dapr/setup-dapr@8d980918fd43a2765c143ce7f687665b2d46a6b9 # v2
         with:
           version: ${{ env.DAPR_CLI_VERSION }}
 
