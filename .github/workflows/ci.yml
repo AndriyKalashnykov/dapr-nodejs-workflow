@@ -76,6 +76,7 @@ jobs:
   # ── Unit tests ────────────────────────────────────────────────────────────────
   test:
     name: Unit tests
+    needs: lint
     timeout-minutes: 5
     runs-on: ubuntu-latest
 
@@ -102,7 +103,7 @@ jobs:
   # ── Smoke test ────────────────────────────────────────────────────────────────
   smoke:
     name: HTTP smoke test
-    needs: build
+    needs: [build, test]
     timeout-minutes: 5
     runs-on: ubuntu-latest
 
