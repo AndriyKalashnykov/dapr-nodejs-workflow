@@ -1,0 +1,36 @@
+name: dapr-workflow
+
+services:
+  redis:
+    image: docker.io/redis:8-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "no", "--maxmemory", "500mb", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgres:
+    image: docker.io/postgres:18-alpine
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: daprrulz
+    volumes:
+      - ./db/baseline_ddl.sql:/docker-entrypoint-initdb.d/01_create_tables.sql
+      - ./db/baseline_dml.sql:/docker-entrypoint-initdb.d/02_fill_tables.sql
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pg-data:

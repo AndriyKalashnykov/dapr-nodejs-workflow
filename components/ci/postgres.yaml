@@ -1,0 +1,11 @@
+# CI-specific Dapr binding for PostgreSQL (password matches GitHub Actions service container)
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: postgres-db
+spec:
+  type: bindings.postgres
+  version: v1
+  metadata:
+    - name: url
+      value: "postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable"

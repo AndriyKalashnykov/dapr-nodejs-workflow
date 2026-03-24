@@ -1,0 +1,20 @@
+# CI-specific Dapr state store for Redis (GitHub Actions service container)
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: state-redis
+  namespace: default
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+  - name: redisHost
+    value: localhost:6379
+  - name: redisPassword
+    value: ""
+  - name: enableTLS
+    value: "false"
+  - name: failover
+    value: "false"
+  - name: actorStateStore
+    value: "true"

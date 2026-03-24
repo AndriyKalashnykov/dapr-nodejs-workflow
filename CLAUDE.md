@@ -21,7 +21,11 @@ make start              # Build and start API server with Dapr sidecar (foregrou
 make stop               # Stop the Dapr sidecar and API server
 make start-no-dapr      # Build and start API server without Dapr (HTTP only)
 
-# Database
+# Infrastructure (Podman Compose)
+make up                 # Start Redis + PostgreSQL via Podman Compose
+make down               # Stop and remove infrastructure containers
+
+# Database (standalone, alternative to `make up`)
 make postgres-start     # Start PostgreSQL in Podman
 make postgres-stop      # Stop PostgreSQL container
 
@@ -29,13 +33,24 @@ make postgres-stop      # Stop PostgreSQL container
 make check-workflow     # Trigger a test workflow and poll the result
 make check-db           # Run the database health check endpoint
 
+# Integration tests
+make test-integration   # Run Dapr integration tests (requires running stack)
+
 # Maintenance
 make clean              # Remove build artifacts and node_modules
 make ci                 # Run GitHub Actions CI pipeline locally via act
 make release VERSION=v1.0.0  # Tag and push a release
 ```
 
-### Full Test Sequence with Dapr
+### Full Test Sequence with Dapr (docker-compose)
+1. `make dapr-init` (one-time setup)
+2. `make up` (starts Redis + PostgreSQL via Podman Compose)
+3. `make start` (Terminal 1 — stays in foreground)
+4. `make test-integration` (Terminal 2 — runs Vitest integration suite)
+5. `make check-workflow` or `make check-db` (Terminal 2 — manual verification)
+6. `make stop` → `make down`
+
+### Full Test Sequence with Dapr (standalone)
 1. `make dapr-init` (one-time setup)
 2. `docker start redis-container` (if redis-container exists but is stopped)
 3. `make postgres-start`
@@ -50,9 +65,16 @@ make release VERSION=v1.0.0  # Tag and push a release
 src/
   api-server.ts              Express app, lazy-init WorkflowRuntime + DaprWorkflowClient
   data-request-workflow.ts   dataRequestWorkflow generator and all activities
+  __tests__/
+    *.test.ts                Unit tests (Vitest)
+    *.integration.test.ts    Integration tests (require running Dapr stack)
 components/
-  postgres.yaml              bindings.postgres binding named postgres-db
-  redis.yaml                 state.redis state store named state-redis (actor/workflow state)
+  postgres.yaml              bindings.postgres binding named postgres-db (local dev)
+  redis.yaml                 state.redis state store named state-redis (local dev)
+  ci/
+    postgres.yaml            CI-specific postgres binding (password: postgres)
+    redis.yaml               CI-specific redis state store
+docker-compose.yaml          Podman Compose — Redis + PostgreSQL for local development
 ```
 
 ### Request Flow
@@ -101,11 +123,15 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 | `GET` | `/db-health` | Schedules a workflow and waits up to 10s for completion |
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
-The CI pipeline runs on pushes and PRs to `main` with four parallel jobs:
+The CI pipeline runs on pushes and PRs to `main` with these jobs:
 - **build**: `make ci-build` (frozen lockfile install + TypeScript compile) + `make audit` (dependency vulnerability scan)
 - **lint**: `make ci-lint` (ESLint with typescript-eslint strict rules)
 - **test**: `make ci-test` (Vitest unit tests for activities and utilities)
 - **smoke**: `make ci-smoke` (builds, starts the Express server without Dapr, verifies health endpoint)
+- **integration**: `make ci-test-integration` (PostgreSQL + Redis service containers, Dapr sidecar via `dapr init --slim`, full-stack Vitest integration tests)
+- **ci-pass**: gate job — fails if any upstream job fails
+
+Job dependencies: `lint` → `test` → `smoke` + `integration`, `build` → `smoke` + `integration`.
 
 Concurrency control cancels redundant runs for the same ref. To run CI locally: `make ci` (requires `act` and Docker).
 

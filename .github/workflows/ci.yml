@@ -127,11 +127,103 @@ jobs:
       - name: Smoke test
         run: make ci-smoke
 
+  # ── Integration tests ─────────────────────────────────────────────────────
+  integration:
+    name: Integration tests
+    needs: [build, test]
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+
+      - name: Install Dapr CLI
+        uses: dapr/setup-dapr@v2
+        with:
+          version: '1.15.0'
+
+      - name: Initialize Dapr (slim -- no Docker needed)
+        run: dapr init --slim
+
+      - name: Seed database
+        run: |
+          psql -h localhost -U postgres -d postgres -f db/baseline_ddl.sql
+          psql -h localhost -U postgres -d postgres -f db/baseline_dml.sql
+        env:
+          PGPASSWORD: postgres
+
+      - name: Start Dapr sidecar
+        run: |
+          export PATH="$HOME/.dapr/bin:$PATH"
+          daprd \
+            --app-id workflow-api \
+            --app-port 3000 \
+            --app-protocol http \
+            --dapr-grpc-port 50001 \
+            --dapr-http-port 3500 \
+            --resources-path ./components/ci \
+            --log-level warn \
+            > /tmp/daprd.log 2>&1 &
+          echo "Waiting for Dapr sidecar on :3500..."
+          timeout 30 bash -c \
+            'until curl -sf http://localhost:3500/v1.0/healthz > /dev/null; do sleep 1; done' \
+            || { echo "=== daprd log ==="; cat /tmp/daprd.log; exit 1; }
+
+      - name: Build and start server
+        run: |
+          make ci-build
+          DAPR_HOST=localhost DAPR_HTTP_PORT=3500 node dist/api-server.js &
+          echo "Waiting for API server on :3000..."
+          timeout 15 bash -c \
+            'until curl -sf http://localhost:3000/ > /dev/null; do sleep 1; done' \
+            || { echo "Server failed to start"; exit 1; }
+
+      - name: Integration tests
+        run: make ci-test-integration
+
   # ── Gate ───────────────────────────────────────────────────────────────────
   ci-pass:
     name: CI ✓
     if: always()
-    needs: [build, lint, test, smoke]
+    needs: [build, lint, test, smoke, integration]
     runs-on: ubuntu-latest
     steps:
       - run: |

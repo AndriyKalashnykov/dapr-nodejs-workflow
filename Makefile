@@ -114,6 +114,20 @@ update: deps
 upgrade: deps
 	pnpm upgrade
 
+#up: @ Start infrastructure services (Redis, PostgreSQL) via Podman Compose
+up:
+	@if podman compose ps --format '{{.State}}' 2>/dev/null | grep -q running; then \
+		echo "Infrastructure is already running."; \
+	else \
+		podman compose up -d; \
+		echo "Waiting for services to be healthy..."; \
+		timeout 30 bash -c 'until podman compose ps --format "{{.Status}}" 2>/dev/null | grep -q healthy; do sleep 1; done' || true; \
+	fi
+
+#down: @ Stop infrastructure services and remove containers
+down:
+	podman compose down
+
 #postgres-start: @ Start PostgreSQL in Docker
 postgres-start:
 	@if docker ps -q --filter "name=dapr-nodejs-postgres" | grep -q .; then \
@@ -182,6 +196,10 @@ check-db:
 	if [ -z "$$RESP" ]; then echo "Server not responding on port $(PORT) (is it running with Dapr?)"; \
 	else echo "$$RESP" | python3 -m json.tool 2>/dev/null || echo "$$RESP"; fi
 
+#test-integration: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
+test-integration: install
+	pnpm exec vitest run --config vitest.integration.config.ts
+
 #check-version: @ Ensure VERSION variable is set
 check-version:
 ifndef VERSION
@@ -226,6 +244,10 @@ ci-smoke: ci-build
 	curl -sf http://localhost:3000/ | grep -q "Dapr Workflow API" || { echo "Health check failed"; kill $$SERVER_PID; exit 1; }; \
 	echo "Smoke tests passed"; \
 	kill $$SERVER_PID 2>/dev/null
+
+#ci-test-integration: @ Run integration tests in CI
+ci-test-integration: ci-install
+	pnpm exec vitest run --config vitest.integration.config.ts --reporter=verbose
 
 #audit: @ Audit dependencies for known vulnerabilities
 audit:

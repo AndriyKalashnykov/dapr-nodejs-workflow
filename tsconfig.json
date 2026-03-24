@@ -68,5 +68,5 @@
     "skipLibCheck": true /* Skip type checking of declaration files. */,
     "forceConsistentCasingInFileNames": true /* Disallow inconsistently-cased references to the same file. */
   },
-  "exclude": ["src/__tests__"]
+  "exclude": ["src/__tests__", "vitest.config.ts", "vitest.integration.config.ts"]
 }
