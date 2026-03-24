@@ -18,7 +18,10 @@ describe("workflow scheduling", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "integration-test", data: { key: "value" } }),
     });
-    expect(res.status).toBe(202);
+    if (res.status !== 202) {
+      const errorBody = await res.text();
+      throw new Error(`Expected 202 but got ${res.status}: ${errorBody}`);
+    }
     const body = (await res.json()) as { message: string; id: string };
     expect(body.id).toBeDefined();
     expect(typeof body.id).toBe("string");
