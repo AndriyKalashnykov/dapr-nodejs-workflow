@@ -190,22 +190,41 @@ jobs:
         env:
           PGPASSWORD: postgres
 
+      - name: Start Dapr placement and scheduler
+        run: |
+          export PATH="$HOME/.dapr/bin:$PATH"
+          placement --port 50005 > /tmp/placement.log 2>&1 &
+          if command -v scheduler > /dev/null 2>&1; then
+            scheduler --port 50006 --etcd-data-dir /tmp/dapr-scheduler-data \
+              > /tmp/scheduler.log 2>&1 &
+            echo "Placement and scheduler started"
+          else
+            echo "Placement started (scheduler binary not available)"
+          fi
+          sleep 3
+
       - name: Start Dapr sidecar
         run: |
           export PATH="$HOME/.dapr/bin:$PATH"
+          SCHEDULER_ARGS=""
+          if command -v scheduler > /dev/null 2>&1; then
+            SCHEDULER_ARGS="--scheduler-host-address localhost:50006"
+          fi
           daprd \
             --app-id workflow-api \
             --app-port 3000 \
             --app-protocol http \
             --dapr-grpc-port 50001 \
             --dapr-http-port 3500 \
+            --placement-host-address localhost:50005 \
+            $SCHEDULER_ARGS \
             --resources-path ./components/ci \
             --log-level warn \
             > /tmp/daprd.log 2>&1 &
           echo "Waiting for Dapr sidecar on :3500..."
           timeout 30 bash -c \
             'until curl -sf http://localhost:3500/v1.0/healthz > /dev/null; do sleep 1; done' \
-            || { echo "=== daprd log ==="; cat /tmp/daprd.log; exit 1; }
+            || { echo "=== daprd log ==="; cat /tmp/daprd.log; echo "=== placement log ==="; cat /tmp/placement.log; exit 1; }
 
       - name: Build and start server
         run: |
