@@ -111,7 +111,7 @@ Run `make help` to list all available targets. Summary:
 
 | Target | Description |
 |--------|-------------|
-| `make deps` | Check and install required dependencies (node, pnpm, podman, dapr, git) |
+| `make deps` | Check and install required dependencies (node, pnpm, podman, dapr, act, git) |
 | `make install` | Install npm dependencies (`pnpm install`) |
 | `make build` | Compile TypeScript to `dist/` |
 | `make start` | Build and start the API server with Dapr sidecar |

@@ -9,7 +9,7 @@ help:
 	@echo "Commands :"
 	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-16s\033[0m - %s\n", $$1, $$2}'
 
-#deps: @ Check and install required dependencies (node, pnpm, podman, dapr, git)
+#deps: @ Check and install required dependencies (node, pnpm, podman, dapr, act, git)
 deps:
 	@echo "Checking dependencies..."
 	@command -v node >/dev/null 2>&1 || { echo "Installing Node.js via nvm..."; \
@@ -51,6 +51,19 @@ deps:
 			fi; \
 		else \
 			echo "ERROR: Could not install dapr CLI. Install manually from https://docs.dapr.io/getting-started/install-dapr-cli/"; exit 1; \
+		fi; \
+	}
+	@command -v act >/dev/null 2>&1 || { echo "Installing act..."; \
+		if [ "$$(uname)" = "Linux" ]; then \
+			curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash -s -- -b /usr/local/bin; \
+		elif [ "$$(uname)" = "Darwin" ]; then \
+			if command -v brew >/dev/null 2>&1; then \
+				brew install act; \
+			else \
+				curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash -s -- -b /usr/local/bin; \
+			fi; \
+		else \
+			echo "ERROR: Could not install act. Install manually from https://github.com/nektos/act"; exit 1; \
 		fi; \
 	}
 	@command -v git >/dev/null 2>&1 || { echo "Installing git..."; \
@@ -99,8 +112,7 @@ postgres-stop:
 	@docker stop dapr-nodejs-postgres 2>/dev/null || echo "PostgreSQL container is not running."
 
 #dapr-init: @ Initialize Dapr in local environment (stops conflicting Redis if needed)
-dapr-init:
-	@command -v dapr >/dev/null 2>&1 || { echo "ERROR: dapr CLI not found. Run 'make deps' first."; exit 1; }
+dapr-init: deps
 	@if docker ps -q --filter "publish=6379" | grep -q .; then \
 		echo "Stopping container on port 6379 to free it for dapr init..."; \
 		docker stop $$(docker ps -q --filter "publish=6379"); \
@@ -187,8 +199,7 @@ audit:
 	pnpm audit --audit-level=high
 
 #ci: @ Run CI pipeline locally using act (requires Docker)
-ci:
-	@command -v act >/dev/null 2>&1 || { echo "ERROR: act not found. Install from https://github.com/nektos/act"; exit 1; }
+ci: deps
 	act push --job ci
 
 #renovate: @ Run Renovate locally in dry-run mode
