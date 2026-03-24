@@ -101,7 +101,7 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 | `GET` | `/db-health` | Schedules a workflow and waits up to 10s for completion |
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
-The CI pipeline runs `make install` and `make build` only — there are no automated tests. To run CI locally: `make ci` (requires `act` and Docker).
+The CI pipeline runs on pushes and PRs to `main`. Steps: checkout, pnpm install (frozen lockfile, cached store), TypeScript build, and dependency audit. There are no automated tests yet. Concurrency control cancels redundant runs for the same ref. To run CI locally: `make ci` (requires `act` and Docker).
 
 ## Key Environment Variables
 
