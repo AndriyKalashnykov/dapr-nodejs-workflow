@@ -2,6 +2,17 @@
 
 PORT ?= 3000
 
+# --- Pinned tool versions ---
+NVM_VERSION  := 0.40.3
+PNPM_VERSION := 10
+ACT_VERSION  := 0.2.86
+
+.PHONY: help deps clean install build lint test test-watch check update upgrade \
+	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
+	check-workflow check-db test-integration check-version release tag-release \
+	ci-install ci-build ci-lint ci-test ci-smoke ci-test-integration ci-seed-db \
+	ci-dapr-start audit ci renovate
+
 #help: @ List available tasks
 help:
 	@clear
@@ -17,16 +28,16 @@ deps:
 			. "$$HOME/.nvm/nvm.sh" && nvm install $$(cat .nvmrc); \
 		else \
 			echo "Installing nvm..."; \
-			curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash; \
+			curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
 			export NVM_DIR="$$HOME/.nvm"; \
 			. "$$NVM_DIR/nvm.sh" && nvm install $$(cat .nvmrc); \
 		fi; \
 	}
 	@command -v pnpm >/dev/null 2>&1 || { echo "Installing pnpm..."; \
 		if command -v corepack >/dev/null 2>&1; then \
-			corepack enable && corepack prepare pnpm@latest --activate; \
+			corepack enable && corepack prepare pnpm@$(PNPM_VERSION) --activate; \
 		else \
-			npm install -g pnpm; \
+			npm install -g pnpm@$(PNPM_VERSION); \
 		fi; \
 	}
 	@command -v podman >/dev/null 2>&1 || { echo "Installing Podman..."; \
@@ -53,14 +64,14 @@ deps:
 			echo "ERROR: Could not install dapr CLI. Install manually from https://docs.dapr.io/getting-started/install-dapr-cli/"; exit 1; \
 		fi; \
 	}
-	@command -v act >/dev/null 2>&1 || { echo "Installing act..."; \
+	@command -v act >/dev/null 2>&1 || { echo "Installing act v$(ACT_VERSION)..."; \
 		if [ "$$(uname)" = "Linux" ]; then \
-			curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash -s -- -b /usr/local/bin; \
+			curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
 		elif [ "$$(uname)" = "Darwin" ]; then \
 			if command -v brew >/dev/null 2>&1; then \
 				brew install act; \
 			else \
-				curl -fsSL https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash -s -- -b /usr/local/bin; \
+				curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
 			fi; \
 		else \
 			echo "ERROR: Could not install act. Install manually from https://github.com/nektos/act"; exit 1; \
@@ -85,34 +96,34 @@ clean:
 
 #install: @ Install npm dependencies
 install: deps
-	pnpm install
+	@pnpm install
 
 #build: @ Build TypeScript to dist/
 build: install
-	pnpm build
+	@pnpm build
 
 #lint: @ Run ESLint on source files
 lint: install
-	pnpm exec eslint src/
+	@pnpm exec eslint src/
 
 #test: @ Run unit tests (lints first)
 test: lint
-	pnpm exec vitest run
+	@pnpm exec vitest run
 
 #test-watch: @ Run unit tests in watch mode
 test-watch: install
-	pnpm exec vitest
+	@pnpm exec vitest
 
 #check: @ Run full local verification (lint, build, test)
 check: lint build test
 
 #update: @ Update dependencies to latest allowed versions
 update: deps
-	pnpm update
+	@pnpm update
 
 #upgrade: @ Upgrade dependencies to latest versions (ignoring ranges)
 upgrade: deps
-	pnpm upgrade
+	@pnpm upgrade
 
 #up: @ Start infrastructure services (Redis, PostgreSQL) via Podman Compose
 up:
@@ -126,7 +137,7 @@ up:
 
 #down: @ Stop infrastructure services and remove containers
 down:
-	podman compose down
+	@podman compose down
 
 #postgres-start: @ Start PostgreSQL in Docker
 postgres-start:
@@ -146,11 +157,11 @@ dapr-init: deps
 		echo "Stopping container on port 6379 to free it for dapr init..."; \
 		docker stop $$(docker ps -q --filter "publish=6379"); \
 	fi
-	dapr init
+	@dapr init
 
 #start: @ Build and start the API server with Dapr sidecar
 start: build
-	DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
+	@DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
 	dapr run \
 		--app-id workflow-api \
 		--app-port $(PORT) \
@@ -172,7 +183,10 @@ stop:
 
 #start-no-dapr: @ Build and start the API server without Dapr sidecar
 start-no-dapr: build
-	PORT=$(PORT) node dist/api-server.js
+	@PORT=$(PORT) node dist/api-server.js
+
+#run: @ Build and start the API server without Dapr sidecar (alias for start-no-dapr)
+run: start-no-dapr
 
 #check-workflow: @ Trigger a test workflow and print the result
 check-workflow:
@@ -199,13 +213,15 @@ check-db:
 
 #test-integration: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
 test-integration: install
-	pnpm exec vitest run --config vitest.integration.config.ts
+	@pnpm exec vitest run --config vitest.integration.config.ts
 
-#check-version: @ Ensure VERSION variable is set
+#check-version: @ Ensure VERSION variable is set and valid semver (vX.Y.Z)
 check-version:
 ifndef VERSION
 	$(error VERSION is undefined. Usage: make release VERSION=v1.0.0)
 endif
+	@echo "$(VERSION)" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$$' \
+		|| { echo "ERROR: VERSION must match semver format vX.Y.Z (got: $(VERSION))"; exit 1; }
 	@echo -n ""
 
 #release: @ Create and push a release tag (requires VERSION=vX.Y.Z)
@@ -222,19 +238,19 @@ tag-release: check-version
 
 #ci-install: @ Install dependencies with frozen lockfile (CI only, skips system deps)
 ci-install:
-	pnpm install --frozen-lockfile
+	@pnpm install --frozen-lockfile
 
 #ci-build: @ Build TypeScript in CI (frozen lockfile, no system deps)
 ci-build: ci-install
-	pnpm build
+	@pnpm build
 
 #ci-lint: @ Run ESLint in CI (frozen lockfile, no system deps)
 ci-lint: ci-install
-	pnpm exec eslint src/
+	@pnpm exec eslint src/
 
 #ci-test: @ Run unit tests in CI
 ci-test: ci-install
-	pnpm exec vitest run --reporter=verbose
+	@pnpm exec vitest run --reporter=verbose
 
 #ci-smoke: @ Run HTTP smoke test against built server
 ci-smoke: ci-build
@@ -248,16 +264,16 @@ ci-smoke: ci-build
 
 #ci-test-integration: @ Run integration tests in CI
 ci-test-integration: ci-install
-	pnpm exec vitest run --config vitest.integration.config.ts --reporter=verbose
+	@pnpm exec vitest run --config vitest.integration.config.ts --reporter=verbose
 
 #ci-seed-db: @ Seed PostgreSQL with baseline schema and data (CI only)
 ci-seed-db:
-	PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f db/baseline_ddl.sql
-	PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f db/baseline_dml.sql
+	@PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f db/baseline_ddl.sql
+	@PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f db/baseline_dml.sql
 
 #ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
 ci-dapr-start:
-	dapr init
+	@dapr init
 	@DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
 	nohup dapr run \
 		--app-id workflow-api \
@@ -285,11 +301,11 @@ ci-dapr-start:
 
 #audit: @ Audit dependencies for known vulnerabilities
 audit:
-	pnpm audit --audit-level=high
+	@pnpm audit --audit-level=high
 
 #ci: @ Run CI pipeline locally using act (build, lint, test, smoke — requires Docker)
 ci: deps
-	act push --job build --job lint --job test --job smoke
+	@act push --job build --job lint --job test --job smoke
 
 #renovate: @ Run Renovate locally in dry-run mode
 renovate: deps
