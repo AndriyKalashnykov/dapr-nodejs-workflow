@@ -1,4 +1,4 @@
-[![ci](https://github.com/AndriyKalashnykov/dapr-nodejs-workflow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndriyKalashnykov/dapr-nodejs-workflow/actions/workflows/ci.yml)
+[![CI](https://github.com/AndriyKalashnykov/dapr-nodejs-workflow/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndriyKalashnykov/dapr-nodejs-workflow/actions/workflows/ci.yml)
 [![Hits](https://hits.sh/github.com/AndriyKalashnykov/dapr-nodejs-workflow.svg?view=today-total&style=plastic)](https://hits.sh/github.com/AndriyKalashnykov/dapr-nodejs-workflow/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://opensource.org/licenses/MIT)
 [![Renovate enabled](https://img.shields.io/badge/renovate-enabled-brightgreen.svg)](https://app.renovatebot.com/dashboard#github/AndriyKalashnykov/dapr-nodejs-workflow)
@@ -7,35 +7,44 @@
 
 A Dapr Workflow demo using the [Dapr JS SDK](https://github.com/dapr/js-sdk) with an Express HTTP API. The app schedules durable workflows that query PostgreSQL through Dapr bindings, with Redis as the workflow state backend.
 
-## Prerequisites
-
-- Linux or macOS
-- [Docker](https://www.docker.com/) (or [Podman](https://podman.io/))
-- [Git](https://git-scm.com/downloads)
-- [Node.js](https://nodejs.org/) v24+ (installed automatically by `make deps`)
-- [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) v1.17+ (installed automatically by `make deps`)
-
 ## Quick Start
 
 ```bash
-# Clone
-git clone git@github.com:AndriyKalashnykov/dapr-nodejs-workflow.git
-cd dapr-nodejs-workflow
-
-# One-time setup
-make deps          # install system dependencies (node, pnpm, podman, dapr, act, git)
+make deps          # install system dependencies (node, pnpm, podman, dapr, git)
 make install       # install npm packages
 make dapr-init     # initialize Dapr (starts Redis, placement, scheduler containers)
+make up            # start PostgreSQL via Podman Compose
+make start         # build and start API server with Dapr sidecar (foreground)
 ```
+
+## Prerequisites
+
+| Tool | Version | Purpose |
+|------|---------|---------|
+| [GNU Make](https://www.gnu.org/software/make/) | 3.81+ | Build orchestration |
+| [Node.js](https://nodejs.org/) | 24+ | JavaScript runtime (installed by `make deps`) |
+| [pnpm](https://pnpm.io/) | 10+ | Package manager (installed by `make deps`) |
+| [Docker](https://www.docker.com/) or [Podman](https://podman.io/) | latest | Container runtime |
+| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17+ | Dapr sidecar management (installed by `make deps`) |
+| [Git](https://git-scm.com/) | latest | Version control |
+| [act](https://github.com/nektos/act) | 0.2.86+ | Run GitHub Actions locally (optional, installed by `make deps-act`) |
+
+Install all required dependencies:
+
+```bash
+make deps
+```
+
+## Usage
 
 ### Run with Dapr
 
 ```bash
-# Terminal 1 — start infrastructure and server
+# Terminal 1 -- start infrastructure and server
 make up            # start PostgreSQL via Docker Compose
 make start         # build and start API server with Dapr sidecar (foreground)
 
-# Terminal 2 — verify
+# Terminal 2 -- verify
 make check-db      # run database health check workflow
 make check-workflow # trigger a test workflow and poll the result
 ```
@@ -59,7 +68,7 @@ make down          # stop PostgreSQL container
 ### Unit Tests
 
 ```bash
-make test          # lint + run Vitest unit tests
+make test          # run Vitest unit tests
 make test-watch    # run unit tests in watch mode
 ```
 
@@ -79,7 +88,8 @@ make test-integration
 ### Run CI Locally
 
 ```bash
-make ci            # run build, lint, test, smoke jobs via act (requires Docker)
+make ci            # run lint, build, test locally
+make ci-run        # run GitHub Actions workflow locally via act (requires Docker)
 ```
 
 > The integration job uses GitHub Actions service containers not supported by `act`. Test integration locally with the steps above.
@@ -100,7 +110,7 @@ make ci            # run build, lint, test, smoke jobs via act (requires Docker)
 curl -X POST http://localhost:3000/process-payload \
   -H "Content-Type: application/json" \
   -d '{"name": "John Doe", "data": {"key1": "value1"}}'
-# → {"message":"...","id":"82236756-4f38-4b5f-9796-a1268184561e"}
+# -> {"message":"...","id":"82236756-4f38-4b5f-9796-a1268184561e"}
 
 # Poll (while 30s delay activity is running)
 curl http://localhost:3000/workflow/82236756-4f38-4b5f-9796-a1268184561e/status | jq .
@@ -130,18 +140,18 @@ After completion (`output` is present):
 ## Architecture
 
 ```
-HTTP client → Express API (:3000)
-                  ↓
+HTTP client -> Express API (:3000)
+                  |
           DaprWorkflowClient (gRPC :50001)
-                  ↓
+                  |
           Dapr sidecar (:3500 HTTP / :50001 gRPC)
-                  ↓
-          WorkflowRuntime → dataRequestWorkflow
-                  ↓
+                  |
+          WorkflowRuntime -> dataRequestWorkflow
+                  |
           Activities:
-            1. delayActivity            — async wait (30s)
-            2. modifyPayloadActivity    — enrich payload
-            3. fetchPostgresDataActivity — Dapr binding → PostgreSQL
+            1. delayActivity            -- async wait (30s)
+            2. modifyPayloadActivity    -- enrich payload
+            3. fetchPostgresDataActivity -- Dapr binding -> PostgreSQL
 ```
 
 ### Service Ports
@@ -170,20 +180,23 @@ db/                          SQL schema and seed data
 docker-compose.yaml          PostgreSQL + Redis for local development
 ```
 
-## Makefile Reference
+## Available Make Targets
 
 Run `make help` to see all available targets.
 
 ### Development
+
 | Target | Description |
 |--------|-------------|
-| `make deps` | Install system dependencies (node, pnpm, podman, dapr, act, git) |
+| `make deps` | Install system dependencies (node, pnpm, podman, dapr, git) |
+| `make deps-act` | Install act for local CI (GitHub Actions runner) |
 | `make install` | Install npm dependencies |
 | `make build` | Compile TypeScript to `dist/` |
 | `make lint` | Run ESLint |
 | `make clean` | Remove `dist/` and `node_modules/` |
 
 ### Infrastructure
+
 | Target | Description |
 |--------|-------------|
 | `make dapr-init` | Initialize Dapr runtime (one-time) |
@@ -193,41 +206,56 @@ Run `make help` to see all available targets.
 | `make postgres-stop` | Stop standalone PostgreSQL |
 
 ### Run & Verify
+
 | Target | Description |
 |--------|-------------|
 | `make start` | Build and run API server with Dapr sidecar (foreground) |
 | `make stop` | Stop Dapr sidecar and API server |
 | `make start-no-dapr` | Run API server without Dapr (HTTP only) |
+| `make run` | Alias for `start-no-dapr` |
 | `make check-workflow` | Trigger a test workflow and poll result |
 | `make check-db` | Run database health check endpoint |
 
 ### Test
+
 | Target | Description |
 |--------|-------------|
-| `make test` | Run unit tests (lints first) |
+| `make test` | Run unit tests |
 | `make test-watch` | Run unit tests in watch mode |
 | `make test-integration` | Run integration tests (requires running Dapr stack) |
 | `make check` | Run lint + build + test |
 
 ### CI & Release
+
 | Target | Description |
 |--------|-------------|
-| `make ci` | Run CI locally via `act` (build, lint, test, smoke) |
+| `make ci` | Run local CI pipeline (lint, build, test) |
+| `make ci-run` | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
 | `make audit` | Audit dependencies for vulnerabilities |
 | `make release VERSION=vX.Y.Z` | Tag and push a release |
 
-## CI Pipeline
+### Utilities
 
-The [CI workflow](.github/workflows/ci.yml) runs on pushes and PRs to `main`:
+| Target | Description |
+|--------|-------------|
+| `make update` | Update dependencies to latest allowed versions |
+| `make upgrade` | Upgrade dependencies to latest versions (ignoring ranges) |
+| `make renovate-validate` | Validate Renovate configuration |
 
-| Job | Makefile targets | Description |
-|-----|-----------------|-------------|
-| **build** | `ci-build`, `audit` | Frozen lockfile install + TypeScript compile + dependency audit |
-| **lint** | `ci-lint` | ESLint with typescript-eslint |
-| **test** | `ci-test` | Vitest unit tests |
-| **smoke** | `ci-smoke` | Start server without Dapr, verify health endpoint |
-| **integration** | `ci-seed-db`, `ci-dapr-start`, `ci-test-integration` | PostgreSQL service container + Dapr CLI v1.17.0 + full-stack integration tests |
-| **ci-pass** | — | Gate job: fails if any upstream job fails |
+## CI/CD
+
+GitHub Actions runs on every push to `main`, tags `v*`, and pull requests.
+
+| Job | Triggers | Steps |
+|-----|----------|-------|
+| **build** | push, PR, tags | `make ci-build`, `make audit` |
+| **lint** | push, PR, tags | `make ci-lint` |
+| **test** | push, PR, tags | `make ci-test` (after lint) |
+| **smoke** | push, PR, tags | `make ci-smoke` (after build + test) |
+| **integration** | push, PR, tags | `make ci-seed-db`, `make ci-dapr-start`, `make ci-test-integration` (after build + test) |
+| **ci-pass** | always | Gate job: fails if any upstream job fails |
+
+[Renovate](https://docs.renovatebot.com/) keeps dependencies up to date with platform automerge enabled.
 
 ## References
 

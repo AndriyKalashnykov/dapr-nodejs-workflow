@@ -1,17 +1,13 @@
 .DEFAULT_GOAL := help
 
+APP_NAME       := dapr-nodejs-workflow
+CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 PORT ?= 3000
 
 # --- Pinned tool versions ---
-NVM_VERSION  := 0.40.3
+NVM_VERSION  := 0.40.4
 PNPM_VERSION := 10
 ACT_VERSION  := 0.2.86
-
-.PHONY: help deps clean install build lint test test-watch check update upgrade \
-	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
-	check-workflow check-db test-integration check-version release tag-release \
-	ci-install ci-build ci-lint ci-test ci-smoke ci-test-integration ci-seed-db \
-	ci-dapr-start audit ci renovate renovate-validate
 
 #help: @ List available tasks
 help:
@@ -20,7 +16,7 @@ help:
 	@echo "Commands :"
 	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-20s\033[0m - %s\n", $$1, $$2}'
 
-#deps: @ Check and install required dependencies (node, pnpm, podman, dapr, act, git)
+#deps: @ Check and install required dependencies (node, pnpm, podman, dapr, git)
 deps:
 	@echo "Checking dependencies..."
 	@command -v node >/dev/null 2>&1 || { echo "Installing Node.js via nvm..."; \
@@ -64,6 +60,21 @@ deps:
 			echo "ERROR: Could not install dapr CLI. Install manually from https://docs.dapr.io/getting-started/install-dapr-cli/"; exit 1; \
 		fi; \
 	}
+	@command -v git >/dev/null 2>&1 || { echo "Installing git..."; \
+		if command -v apt-get >/dev/null 2>&1; then \
+			sudo apt-get update && sudo apt-get install -y git; \
+		elif command -v dnf >/dev/null 2>&1; then \
+			sudo dnf install -y git; \
+		elif command -v brew >/dev/null 2>&1; then \
+			brew install git; \
+		else \
+			echo "ERROR: Could not install git. Install manually from https://git-scm.com/downloads"; exit 1; \
+		fi; \
+	}
+	@echo "All dependencies checked."
+
+#deps-act: @ Install act for local CI (GitHub Actions runner)
+deps-act: deps
 	@command -v act >/dev/null 2>&1 || { echo "Installing act v$(ACT_VERSION)..."; \
 		if [ "$$(uname)" = "Linux" ]; then \
 			curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
@@ -77,18 +88,6 @@ deps:
 			echo "ERROR: Could not install act. Install manually from https://github.com/nektos/act"; exit 1; \
 		fi; \
 	}
-	@command -v git >/dev/null 2>&1 || { echo "Installing git..."; \
-		if command -v apt-get >/dev/null 2>&1; then \
-			sudo apt-get update && sudo apt-get install -y git; \
-		elif command -v dnf >/dev/null 2>&1; then \
-			sudo dnf install -y git; \
-		elif command -v brew >/dev/null 2>&1; then \
-			brew install git; \
-		else \
-			echo "ERROR: Could not install git. Install manually from https://git-scm.com/downloads"; exit 1; \
-		fi; \
-	}
-	@echo "All dependencies checked."
 
 #clean: @ Remove build artifacts and node_modules
 clean:
@@ -106,8 +105,8 @@ build: install
 lint: install
 	@pnpm exec eslint src/
 
-#test: @ Run unit tests (lints first)
-test: lint
+#test: @ Run unit tests
+test: install
 	@pnpm exec vitest run
 
 #test-watch: @ Run unit tests in watch mode
@@ -303,9 +302,15 @@ ci-dapr-start:
 audit:
 	@pnpm audit --audit-level=high
 
-#ci: @ Run CI pipeline locally using act (build, lint, test, smoke — requires Docker)
-ci: deps
-	@act push --job build --job lint --job test --job smoke
+#ci: @ Run local CI pipeline (lint, build, test)
+ci: lint build test
+	@echo "Local CI pipeline passed."
+
+#ci-run: @ Run GitHub Actions workflow locally using act
+ci-run: deps-act
+	@act push --job build --job lint --job test --job smoke \
+		--container-architecture linux/amd64 \
+		--artifact-server-path /tmp/act-artifacts
 
 #renovate: @ Run Renovate locally in dry-run mode
 renovate: deps
@@ -314,3 +319,9 @@ renovate: deps
 #renovate-validate: @ Validate Renovate configuration
 renovate-validate:
 	@npx --yes renovate --platform=local
+
+.PHONY: help deps deps-act clean install build lint test test-watch check update upgrade \
+	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
+	check-workflow check-db test-integration check-version release tag-release \
+	ci-install ci-build ci-lint ci-test ci-smoke ci-test-integration ci-seed-db \
+	ci-dapr-start audit ci ci-run renovate renovate-validate

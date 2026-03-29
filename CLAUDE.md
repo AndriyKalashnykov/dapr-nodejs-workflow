@@ -10,7 +10,7 @@ Dapr Workflow demo using the Dapr JS SDK with an Express HTTP API frontend. A si
 
 ```bash
 # One-time setup
-make deps                # Install system dependencies (node, pnpm, podman, dapr, act, git)
+make deps                # Install system dependencies (node, pnpm, podman, dapr, git)
 make install             # Install npm dependencies
 make dapr-init           # Initialize Dapr (starts Redis, placement, scheduler containers)
 
@@ -38,7 +38,8 @@ Run `make help` for the full list. Key targets grouped by purpose:
 ### Setup
 | Target | Description |
 |--------|-------------|
-| `make deps` | Install system dependencies (node, pnpm, podman, dapr, act, git) |
+| `make deps` | Install system dependencies (node, pnpm, podman, dapr, git) |
+| `make deps-act` | Install act for local CI (GitHub Actions runner) |
 | `make install` | Install npm dependencies (`pnpm install`) |
 | `make dapr-init` | Initialize Dapr runtime (one-time; starts Redis, placement, scheduler containers) |
 
@@ -63,11 +64,12 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | `make start` | Build and start API server with Dapr sidecar (foreground) |
 | `make stop` | Stop the Dapr sidecar and API server |
 | `make start-no-dapr` | Build and start API server without Dapr (HTTP health check only) |
+| `make run` | Alias for `start-no-dapr` |
 
 ### Test & Verify
 | Target | Description |
 |--------|-------------|
-| `make test` | Run unit tests (lints first) |
+| `make test` | Run unit tests |
 | `make test-watch` | Run unit tests in watch mode |
 | `make test-integration` | Run integration tests (requires running Dapr stack + PostgreSQL) |
 | `make check-workflow` | Trigger a workflow via API and poll its status |
@@ -76,7 +78,8 @@ Run `make help` for the full list. Key targets grouped by purpose:
 ### CI & Release
 | Target | Description |
 |--------|-------------|
-| `make ci` | Run build, lint, test, smoke jobs locally via `act` (requires Docker) |
+| `make ci` | Run local CI pipeline (lint, build, test) |
+| `make ci-run` | Run GitHub Actions workflow locally via `act` (requires Docker) |
 | `make audit` | Audit dependencies for known vulnerabilities |
 | `make release VERSION=vX.Y.Z` | Tag and push a release |
 
@@ -91,11 +94,11 @@ src/
     *.test.ts                Unit tests (Vitest)
     *.integration.test.ts    Integration tests (require running Dapr stack)
 components/
-  postgres.yaml              bindings.postgres — local dev (password: daprrulz)
-  redis.yaml                 state.redis — local dev (localhost:6379)
+  postgres.yaml              bindings.postgres -- local dev (password: daprrulz)
+  redis.yaml                 state.redis -- local dev (localhost:6379)
 dapr/ci/
-  postgres.yaml              bindings.postgres — CI (password: postgres)
-  redis.yaml                 state.redis — CI (localhost:6379)
+  postgres.yaml              bindings.postgres -- CI (password: postgres)
+  redis.yaml                 state.redis -- CI (localhost:6379)
 db/
   baseline_ddl.sql           Table schema (users table)
   baseline_dml.sql           Seed data
@@ -104,29 +107,29 @@ docker-compose.yaml          PostgreSQL + Redis for local development
 
 ### Request Flow
 ```
-HTTP client → Express API (:3000)
-                  ↓
+HTTP client -> Express API (:3000)
+                  |
           DaprWorkflowClient (gRPC :50001)
-                  ↓
+                  |
           Dapr sidecar (:3500 HTTP / :50001 gRPC)
-                  ↓
+                  |
           WorkflowRuntime executes dataRequestWorkflow
-                  ↓
+                  |
           Activities (in sequence):
-            1. delayActivity            — async wait (30s default)
-            2. modifyPayloadActivity    — enriches the input payload
-            3. fetchPostgresDataActivity — Dapr binding HTTP API → PostgreSQL
+            1. delayActivity            -- async wait (30s default)
+            2. modifyPayloadActivity    -- enriches the input payload
+            3. fetchPostgresDataActivity -- Dapr binding HTTP API -> PostgreSQL
 ```
 
 ### Dapr Sidecar Pattern
 The app runs as two processes: Express API + Dapr sidecar. The sidecar manages:
-- **State**: Redis via `state-redis` component — Dapr's actor/workflow state backend
-- **Bindings**: PostgreSQL via `postgres-db` component — queried via HTTP POST to `http://localhost:{DAPR_HTTP_PORT}/v1.0/bindings/postgres-db`
+- **State**: Redis via `state-redis` component -- Dapr's actor/workflow state backend
+- **Bindings**: PostgreSQL via `postgres-db` component -- queried via HTTP POST to `http://localhost:{DAPR_HTTP_PORT}/v1.0/bindings/postgres-db`
 
 The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first API request. If the Dapr sidecar is unreachable on gRPC port 50001, the app returns an error directing the user to run `make start`.
 
 ### Workflow Pattern
-`dataRequestWorkflow` is a `TWorkflow` async generator. Steps are composed with `yield ctx.callActivity(...)`. The workflow is **durable** — Dapr replays it from state on restart. Activities must be **deterministic** in their side effects.
+`dataRequestWorkflow` is a `TWorkflow` async generator. Steps are composed with `yield ctx.callActivity(...)`. The workflow is **durable** -- Dapr replays it from state on restart. Activities must be **deterministic** in their side effects.
 
 ### Service Ports
 
@@ -143,7 +146,7 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/` | Health check — returns `{ message }` |
+| `GET` | `/` | Health check -- returns `{ message }` |
 | `POST` | `/process-payload` | Schedules a new workflow; returns `{ id }` immediately (202) |
 | `GET` | `/workflow/:id/status` | Polls workflow state; `output` only present when complete |
 | `GET` | `/db-health` | Schedules a workflow and waits up to 10s for completion |
@@ -155,11 +158,11 @@ The CI pipeline runs on pushes and PRs to `main` with these jobs:
 - **test**: `make ci-test` (Vitest unit tests)
 - **smoke**: `make ci-smoke` (starts Express without Dapr, verifies health endpoint)
 - **integration**: `make ci-seed-db` + `make ci-dapr-start` + `make ci-test-integration` (PostgreSQL service container, Dapr CLI v1.17.0, full-stack Vitest integration tests)
-- **ci-pass**: gate job — fails if any upstream job fails
+- **ci-pass**: gate job -- fails if any upstream job fails
 
-Job dependencies: `lint` → `test` → `smoke` + `integration`, `build` → `smoke` + `integration`.
+Job dependencies: `lint` -> `test` -> `smoke` + `integration`, `build` -> `smoke` + `integration`.
 
-**Local CI**: `make ci` runs build, lint, test, smoke via `act`. The integration job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make test-integration`.
+**Local CI**: `make ci` runs lint, build, test locally. `make ci-run` runs build, lint, test, smoke via `act`. The integration job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make test-integration`.
 
 ## Key Environment Variables
 
