@@ -11,7 +11,7 @@ ACT_VERSION  := 0.2.86
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db test-integration check-version release tag-release \
 	ci-install ci-build ci-lint ci-test ci-smoke ci-test-integration ci-seed-db \
-	ci-dapr-start audit ci renovate
+	ci-dapr-start audit ci renovate renovate-validate
 
 #help: @ List available tasks
 help:
@@ -310,3 +310,7 @@ ci: deps
 #renovate: @ Run Renovate locally in dry-run mode
 renovate: deps
 	@LOG_LEVEL=debug npx renovate --dry-run=full --platform=local --repository-cache=reset --token=$(GITHUB_TOKEN)
+
+#renovate-validate: @ Validate Renovate configuration
+renovate-validate:
+	@npx --yes renovate --platform=local

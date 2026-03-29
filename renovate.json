@@ -2,48 +2,23 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:best-practices",
-    ":semanticCommits"
+    ":semanticCommitType(chore)"
   ],
+  "commitMessagePrefix": "chore(all): ",
+  "commitMessageAction": "update",
+  "commitBody": "Signed-off-by: Renovate Bot <bot@renovateapp.com>",
   "labels": ["dependencies"],
+  "prConcurrentLimit": 50,
+  "prHourlyLimit": 0,
+  "platformAutomerge": true,
   "automerge": true,
   "automergeType": "pr",
   "automergeStrategy": "squash",
-  "platformAutomerge": true,
   "ignoreTests": false,
-  "prConcurrentLimit": 5,
-  "prHourlyLimit": 3,
-  "packageRules": [
-    {
-      "description": "Automerge all dependencies that pass checks",
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "automerge": true
-    },
-    {
-      "description": "Automerge major updates that pass checks",
-      "matchUpdateTypes": ["major"],
-      "automerge": true,
-      "labels": ["dependencies", "breaking-change"]
-    },
-    {
-      "description": "Group Dapr SDK updates",
-      "matchPackageNames": ["@dapr/dapr"],
-      "groupName": "Dapr SDK"
-    },
-    {
-      "description": "Group Docker base images",
-      "matchManagers": ["dockerfile", "docker-compose"],
-      "groupName": "Docker base images"
-    },
-    {
-      "description": "Group Node.js version updates",
-      "matchPackageNames": ["node"],
-      "matchManagers": ["dockerfile", "docker-compose", "nvm", "nodenv"],
-      "groupName": "Node.js"
-    }
-  ],
   "vulnerabilityAlerts": {
     "labels": ["security"],
-    "automerge": true
+    "automerge": true,
+    "minimumReleaseAge": "0 days"
   },
   "lockFileMaintenance": {
     "enabled": true,
@@ -51,5 +26,35 @@
   },
   "npm": {
     "minimumReleaseAge": "3 days"
-  }
+  },
+  "packageRules": [
+    {
+      "description": "Wait 3 days before automerging major updates",
+      "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Group GitHub Actions into one PR",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "Group devDependencies non-major updates",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev-dependencies",
+      "automerge": true
+    },
+    {
+      "description": "Group type definitions",
+      "matchPackageNames": ["/^@types\\//"],
+      "groupName": "type-definitions",
+      "automerge": true
+    },
+    {
+      "description": "Group Dapr SDK updates",
+      "matchPackageNames": ["@dapr/dapr"],
+      "groupName": "Dapr SDK"
+    }
+  ]
 }
