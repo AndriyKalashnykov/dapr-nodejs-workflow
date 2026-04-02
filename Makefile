@@ -7,7 +7,7 @@ PORT ?= 3000
 # --- Pinned tool versions ---
 NVM_VERSION  := 0.40.4
 PNPM_VERSION := 10
-ACT_VERSION  := 0.2.86
+ACT_VERSION  := 0.2.87
 
 #help: @ List available tasks
 help:
