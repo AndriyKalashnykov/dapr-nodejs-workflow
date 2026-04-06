@@ -102,7 +102,15 @@ build: install
 
 #lint: @ Run ESLint on source files
 lint: install
-	@pnpm exec eslint src/
+	@pnpm exec eslint --max-warnings 0 src/
+
+#format: @ Auto-fix formatting with Prettier
+format: install
+	@pnpm exec prettier --write "src/**/*.{ts,json}"
+
+#vulncheck: @ Audit dependencies for known vulnerabilities
+vulncheck: install
+	@pnpm audit --audit-level=moderate
 
 #test: @ Run unit tests
 test: install
@@ -244,7 +252,7 @@ ci-build: ci-install
 
 #ci-lint: @ Run ESLint in CI (frozen lockfile, no system deps)
 ci-lint: ci-install
-	@pnpm exec eslint src/
+	@pnpm exec eslint --max-warnings 0 src/
 
 #ci-test: @ Run unit tests in CI
 ci-test: ci-install
@@ -301,8 +309,8 @@ ci-dapr-start:
 audit:
 	@pnpm audit --audit-level=high
 
-#ci: @ Run local CI pipeline (lint, build, test)
-ci: lint build test
+#ci: @ Run local CI pipeline (lint, vulncheck, build, test)
+ci: lint vulncheck build test
 	@echo "Local CI pipeline passed."
 
 #ci-run: @ Run GitHub Actions workflow locally using act
@@ -319,8 +327,8 @@ renovate: deps
 renovate-validate:
 	@npx --yes renovate --platform=local
 
-.PHONY: help deps deps-act clean install build lint test test-watch check update upgrade \
-	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
+.PHONY: help deps deps-act clean install build lint format vulncheck test test-watch check \
+	update upgrade up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db test-integration check-version release tag-release \
 	ci-install ci-build ci-lint ci-test ci-smoke ci-test-integration ci-seed-db \
 	ci-dapr-start audit ci ci-run renovate renovate-validate

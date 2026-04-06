@@ -5,6 +5,7 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -187,6 +188,7 @@ jobs:
     name: CI ✓
     if: always()
     needs: [build, lint, test, smoke, integration]
+    timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:
       - run: |

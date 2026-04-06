@@ -16,7 +16,10 @@ describe("workflow scheduling", () => {
     const res = await fetch(`${API_URL}/process-payload`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "integration-test", data: { key: "value" } }),
+      body: JSON.stringify({
+        name: "integration-test",
+        data: { key: "value" },
+      }),
     });
     if (res.status !== 202) {
       const errorBody = await res.text();

@@ -16,7 +16,7 @@ make dapr-init           # Initialize Dapr (starts Redis, placement, scheduler c
 
 # Start infrastructure + server (two terminals)
 make up                  # Terminal 1: start PostgreSQL via Podman Compose (Redis from dapr-init)
-make start               # Terminal 1: build and start API server with Dapr sidecar (foreground)
+make start               # Terminal 2: build and start API server with Dapr sidecar (foreground)
 
 # Verify (from another terminal)
 make check-workflow      # Trigger a test workflow and poll the result
@@ -47,7 +47,9 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | Target | Description |
 |--------|-------------|
 | `make build` | Compile TypeScript to `dist/` |
-| `make lint` | Run ESLint on source files |
+| `make lint` | Run ESLint on source files (zero warnings enforced) |
+| `make format` | Auto-fix formatting with Prettier |
+| `make vulncheck` | Audit dependencies for known vulnerabilities |
 | `make check` | Run lint + build + test in sequence |
 
 ### Infrastructure
@@ -78,7 +80,7 @@ Run `make help` for the full list. Key targets grouped by purpose:
 ### CI & Release
 | Target | Description |
 |--------|-------------|
-| `make ci` | Run local CI pipeline (lint, build, test) |
+| `make ci` | Run local CI pipeline (lint, vulncheck, build, test) |
 | `make ci-run` | Run GitHub Actions workflow locally via `act` (requires Docker) |
 | `make audit` | Audit dependencies for known vulnerabilities |
 | `make release VERSION=vX.Y.Z` | Tag and push a release |
@@ -158,11 +160,13 @@ The CI pipeline runs on pushes and PRs to `main` with these jobs:
 - **test**: `make ci-test` (Vitest unit tests)
 - **smoke**: `make ci-smoke` (starts Express without Dapr, verifies health endpoint)
 - **integration**: `make ci-seed-db` + `make ci-dapr-start` + `make ci-test-integration` (PostgreSQL service container, Dapr CLI v1.17.0, full-stack Vitest integration tests)
-- **ci-pass**: gate job -- fails if any upstream job fails
+- **ci-pass**: gate job -- runs last and fails if any upstream job fails, ensuring full pipeline success before merge
 
 Job dependencies: `lint` -> `test` -> `smoke` + `integration`, `build` -> `smoke` + `integration`.
 
-**Local CI**: `make ci` runs lint, build, test locally. `make ci-run` runs build, lint, test, smoke via `act`. The integration job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make test-integration`.
+CI uses `--frozen-lockfile` for reproducible builds (enforced in `ci-install` target).
+
+**Local CI**: `make ci` runs lint, vulncheck, build, test locally. `make ci-run` runs build, lint, test, smoke via `act`. The integration job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make test-integration`.
 
 ## Key Environment Variables
 
@@ -192,6 +196,13 @@ gh run watch
 
 ### Keep Documentation Up to Date
 After any code or configuration change, review and update `README.md`, `CLAUDE.md`, and Dapr component configs. Command references, architecture descriptions, port tables, and environment variable tables must stay in sync with the code.
+
+## Upgrade Backlog
+
+- [ ] `tsconfig.json` uses legacy comment-heavy format with `ES2020` target — Node 24 supports ES2024+; consider modernizing
+- [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override; monitor for upstream fix in Dapr JS SDK
+- [ ] Ubuntu 26.04 LTS releases Apr 2026 �� watch for `ubuntu-latest` CI runner migration
+- [ ] `typescript-eslint` peer dep warns about TypeScript 6.0.2 (`>=4.8.4 <6.0.0`) — works but monitor for official TS6 support
 
 ## Skills
 

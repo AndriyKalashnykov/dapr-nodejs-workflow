@@ -6,7 +6,7 @@ import net from "net";
 function checkPort(
   host: string,
   port: number,
-  timeoutMs: number = 2000
+  timeoutMs: number = 2000,
 ): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new net.Socket();

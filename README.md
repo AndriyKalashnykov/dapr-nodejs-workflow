@@ -22,12 +22,12 @@ make start         # build and start API server with Dapr sidecar (foreground)
 | Tool | Version | Purpose |
 |------|---------|---------|
 | [GNU Make](https://www.gnu.org/software/make/) | 3.81+ | Build orchestration |
-| [Node.js](https://nodejs.org/) | 24+ | JavaScript runtime (installed by `make deps`) |
+| [Node.js](https://nodejs.org/) | 24.14.1+ | JavaScript runtime (installed by `make deps`) |
 | [pnpm](https://pnpm.io/) | 10+ | Package manager (installed by `make deps`) |
 | [Docker](https://www.docker.com/) or [Podman](https://podman.io/) | latest | Container runtime |
 | [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17+ | Dapr sidecar management (installed by `make deps`) |
 | [Git](https://git-scm.com/) | latest | Version control |
-| [act](https://github.com/nektos/act) | 0.2.86+ | Run GitHub Actions locally (optional, installed by `make deps-act`) |
+| [act](https://github.com/nektos/act) | 0.2.87+ | Run GitHub Actions locally (optional, installed by `make deps-act`) |
 
 Install all required dependencies:
 
@@ -192,7 +192,9 @@ Run `make help` to see all available targets.
 | `make deps-act` | Install act for local CI (GitHub Actions runner) |
 | `make install` | Install npm dependencies |
 | `make build` | Compile TypeScript to `dist/` |
-| `make lint` | Run ESLint |
+| `make lint` | Run ESLint (zero warnings enforced) |
+| `make format` | Auto-fix formatting with Prettier |
+| `make vulncheck` | Audit dependencies for known vulnerabilities |
 | `make clean` | Remove `dist/` and `node_modules/` |
 
 ### Infrastructure
@@ -229,7 +231,7 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
-| `make ci` | Run local CI pipeline (lint, build, test) |
+| `make ci` | Run local CI pipeline (lint, vulncheck, build, test) |
 | `make ci-run` | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
 | `make audit` | Audit dependencies for vulnerabilities |
 | `make release VERSION=vX.Y.Z` | Tag and push a release |
@@ -244,7 +246,7 @@ Run `make help` to see all available targets.
 
 ## CI/CD
 
-GitHub Actions runs on every push to `main`, tags `v*`, and pull requests.
+GitHub Actions runs on every push to `main`, tags `v*`, pull requests, and is reusable via `workflow_call`.
 
 | Job | Triggers | Steps |
 |-----|----------|-------|
