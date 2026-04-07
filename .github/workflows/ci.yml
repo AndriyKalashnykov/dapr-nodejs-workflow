@@ -4,7 +4,35 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - '*.md'
+      - '!CLAUDE.md'
+      - 'docs/**'
+      - 'specs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.claudeignore'
+      - '.claude/**'
+      - 'benchmarks/**'
+      - '**.png'
+      - '**.jpg'
+      - '**.gif'
+      - '**.svg'
   pull_request:
+    paths-ignore:
+      - '*.md'
+      - '!CLAUDE.md'
+      - 'docs/**'
+      - 'specs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.claudeignore'
+      - '.claude/**'
+      - 'benchmarks/**'
+      - '**.png'
+      - '**.jpg'
+      - '**.gif'
+      - '**.svg'
   workflow_call:
 
 concurrency:
@@ -22,6 +50,7 @@ jobs:
   # ── Build ─────────────────────────────────────────────────────────────────────
   build:
     name: Build & audit
+    needs: [lint]
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -41,6 +70,7 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
+          cache-dependency-path: "**/pnpm-lock.yaml"
 
       - name: Build
         run: make ci-build
@@ -71,6 +101,7 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
+          cache-dependency-path: "**/pnpm-lock.yaml"
 
       - name: Lint
         run: make ci-lint
@@ -98,6 +129,7 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
+          cache-dependency-path: "**/pnpm-lock.yaml"
 
       - name: Unit tests
         run: make ci-test
@@ -125,6 +157,7 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
+          cache-dependency-path: "**/pnpm-lock.yaml"
 
       - name: Smoke test
         run: make ci-smoke
@@ -166,6 +199,7 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
+          cache-dependency-path: "**/pnpm-lock.yaml"
 
       - name: Install Dapr CLI
         uses: dapr/setup-dapr@8d980918fd43a2765c143ce7f687665b2d46a6b9 # v2

@@ -15,7 +15,7 @@ make install             # Install npm dependencies
 make dapr-init           # Initialize Dapr (starts Redis, placement, scheduler containers)
 
 # Start infrastructure + server (two terminals)
-make up                  # Terminal 1: start PostgreSQL via Podman Compose (Redis from dapr-init)
+make up                  # Terminal 1: start PostgreSQL + Redis via Podman Compose
 make start               # Terminal 2: build and start API server with Dapr sidecar (foreground)
 
 # Verify (from another terminal)
@@ -55,7 +55,7 @@ Run `make help` for the full list. Key targets grouped by purpose:
 ### Infrastructure
 | Target | Description |
 |--------|-------------|
-| `make up` | Start PostgreSQL via Podman Compose (Redis provided by `dapr-init`) |
+| `make up` | Start PostgreSQL + Redis via Podman Compose |
 | `make down` | Stop and remove Podman Compose containers |
 | `make postgres-start` | Start standalone PostgreSQL container (alternative to `make up`) |
 | `make postgres-stop` | Stop standalone PostgreSQL container |
@@ -80,7 +80,7 @@ Run `make help` for the full list. Key targets grouped by purpose:
 ### CI & Release
 | Target | Description |
 |--------|-------------|
-| `make ci` | Run local CI pipeline (lint, vulncheck, build, test) |
+| `make ci` | Run local CI pipeline (lint, vulncheck, test, build) |
 | `make ci-run` | Run GitHub Actions workflow locally via `act` (requires Docker) |
 | `make audit` | Audit dependencies for known vulnerabilities |
 | `make release VERSION=vX.Y.Z` | Tag and push a release |
@@ -154,7 +154,7 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 | `GET` | `/db-health` | Schedules a workflow and waits up to 10s for completion |
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
-The CI pipeline runs on pushes and PRs to `main` with these jobs:
+The CI pipeline runs on pushes to `main`, version tags (`v*`), and all pull requests, with these jobs:
 - **build**: `make ci-build` + `make audit`
 - **lint**: `make ci-lint`
 - **test**: `make ci-test` (Vitest unit tests)
@@ -166,7 +166,7 @@ Job dependencies: `lint` -> `test` -> `smoke` + `integration`, `build` -> `smoke
 
 CI uses `--frozen-lockfile` for reproducible builds (enforced in `ci-install` target).
 
-**Local CI**: `make ci` runs lint, vulncheck, build, test locally. `make ci-run` runs build, lint, test, smoke via `act`. The integration job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make test-integration`.
+**Local CI**: `make ci` runs lint, vulncheck, test, build locally. `make ci-run` runs build, lint, test, smoke via `act`. The integration job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make test-integration`.
 
 ## Key Environment Variables
 
@@ -181,7 +181,7 @@ CI uses `--frozen-lockfile` for reproducible builds (enforced in `ci-install` ta
 ### Before Every Commit
 ```bash
 make build              # compile TypeScript
-make up                 # start PostgreSQL (Terminal 1)
+make up                 # start PostgreSQL + Redis (Terminal 1)
 make start              # start with Dapr sidecar (Terminal 1)
 make check-workflow     # trigger a workflow (Terminal 2)
 make check-db           # verify database health (Terminal 2)
@@ -201,7 +201,7 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 
 - [ ] `tsconfig.json` uses legacy comment-heavy format with `ES2020` target — Node 24 supports ES2024+; consider modernizing
 - [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override; monitor for upstream fix in Dapr JS SDK
-- [ ] Ubuntu 26.04 LTS releases Apr 2026 �� watch for `ubuntu-latest` CI runner migration
+- [ ] Ubuntu 26.04 LTS releases Apr 2026 -- watch for `ubuntu-latest` CI runner migration
 - [ ] `typescript-eslint` peer dep warns about TypeScript 6.0.2 (`>=4.8.4 <6.0.0`) — works but monitor for official TS6 support
 
 ## Skills

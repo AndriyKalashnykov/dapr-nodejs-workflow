@@ -5,9 +5,13 @@ CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "de
 PORT ?= 3000
 
 # --- Pinned tool versions ---
-NVM_VERSION  := 0.40.4
-PNPM_VERSION := 10
-ACT_VERSION  := 0.2.87
+# renovate: datasource=github-releases depName=nvm-sh/nvm
+NVM_VERSION      := 0.40.4
+PNPM_VERSION     := 10.33.0
+# renovate: datasource=github-releases depName=nektos/act
+ACT_VERSION      := 0.2.87
+# renovate: datasource=github-releases depName=dapr/cli
+DAPR_CLI_VERSION := 1.17.0
 
 #help: @ List available tasks
 help:
@@ -35,53 +39,38 @@ deps:
 			npm install -g pnpm@$(PNPM_VERSION); \
 		fi; \
 	}
-	@command -v podman >/dev/null 2>&1 || { echo "Installing Podman..."; \
-		if command -v apt-get >/dev/null 2>&1; then \
-			sudo apt-get update && sudo apt-get install -y podman; \
-		elif command -v dnf >/dev/null 2>&1; then \
-			sudo dnf install -y podman; \
-		elif command -v brew >/dev/null 2>&1; then \
-			brew install podman; \
-		else \
-			echo "ERROR: Could not install podman. Install manually from https://podman.io/getting-started/installation"; exit 1; \
-		fi; \
+	@command -v podman >/dev/null 2>&1 || { \
+		echo "ERROR: Podman is required. Install from https://podman.io/getting-started/installation"; exit 1; \
 	}
-	@command -v dapr >/dev/null 2>&1 || { echo "Installing Dapr CLI..."; \
+	@command -v dapr >/dev/null 2>&1 || { echo "Installing Dapr CLI v$(DAPR_CLI_VERSION)..."; \
 		if [ "$$(uname)" = "Linux" ]; then \
-			wget -q https://raw.githubusercontent.com/dapr/cli/master/install/install.sh -O - | /bin/bash; \
+			wget -q https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh -O - | /bin/bash; \
 		elif [ "$$(uname)" = "Darwin" ]; then \
 			if command -v brew >/dev/null 2>&1; then \
 				brew install dapr/tap/dapr-cli; \
 			else \
-				curl -fsSL https://raw.githubusercontent.com/dapr/cli/master/install/install.sh | /bin/bash; \
+				curl -fsSL https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh | /bin/bash; \
 			fi; \
 		else \
-			echo "ERROR: Could not install dapr CLI. Install manually from https://docs.dapr.io/getting-started/install-dapr-cli/"; exit 1; \
+			echo "ERROR: Could not install Dapr CLI. Install manually from https://docs.dapr.io/getting-started/install-dapr-cli/"; exit 1; \
 		fi; \
 	}
-	@command -v git >/dev/null 2>&1 || { echo "Installing git..."; \
-		if command -v apt-get >/dev/null 2>&1; then \
-			sudo apt-get update && sudo apt-get install -y git; \
-		elif command -v dnf >/dev/null 2>&1; then \
-			sudo dnf install -y git; \
-		elif command -v brew >/dev/null 2>&1; then \
-			brew install git; \
-		else \
-			echo "ERROR: Could not install git. Install manually from https://git-scm.com/downloads"; exit 1; \
-		fi; \
+	@command -v git >/dev/null 2>&1 || { \
+		echo "ERROR: Git is required. Install from https://git-scm.com/downloads"; exit 1; \
 	}
 	@echo "All dependencies checked."
 
 #deps-act: @ Install act for local CI (GitHub Actions runner)
 deps-act: deps
 	@command -v act >/dev/null 2>&1 || { echo "Installing act v$(ACT_VERSION)..."; \
+		mkdir -p $$HOME/.local/bin; \
 		if [ "$$(uname)" = "Linux" ]; then \
-			curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
+			curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | bash -s -- -b $$HOME/.local/bin v$(ACT_VERSION); \
 		elif [ "$$(uname)" = "Darwin" ]; then \
 			if command -v brew >/dev/null 2>&1; then \
 				brew install act; \
 			else \
-				curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | sudo bash -s -- -b /usr/local/bin v$(ACT_VERSION); \
+				curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | bash -s -- -b $$HOME/.local/bin v$(ACT_VERSION); \
 			fi; \
 		else \
 			echo "ERROR: Could not install act. Install manually from https://github.com/nektos/act"; exit 1; \
@@ -131,7 +120,7 @@ update: deps
 upgrade: deps
 	@pnpm upgrade
 
-#up: @ Start infrastructure services (Redis, PostgreSQL) via Podman Compose
+#up: @ Start PostgreSQL and Redis via Podman Compose
 up:
 	@if podman compose ps --format '{{.State}}' 2>/dev/null | grep -q running; then \
 		echo "Infrastructure is already running."; \
@@ -145,23 +134,23 @@ up:
 down:
 	@podman compose down
 
-#postgres-start: @ Start PostgreSQL in Docker
+#postgres-start: @ Start PostgreSQL in Podman
 postgres-start:
-	@if docker ps -q --filter "name=dapr-nodejs-postgres" | grep -q .; then \
+	@if podman ps -q --filter "name=dapr-nodejs-postgres" | grep -q .; then \
 		echo "PostgreSQL container is already running."; \
 	else \
 		./run-postgres.sh; \
 	fi
 
-#postgres-stop: @ Stop PostgreSQL Docker container
+#postgres-stop: @ Stop PostgreSQL Podman container
 postgres-stop:
-	@docker stop dapr-nodejs-postgres 2>/dev/null || echo "PostgreSQL container is not running."
+	@podman stop dapr-nodejs-postgres 2>/dev/null || echo "PostgreSQL container is not running."
 
 #dapr-init: @ Initialize Dapr in local environment (stops conflicting Redis if needed)
 dapr-init: deps
-	@if docker ps -q --filter "publish=6379" | grep -q .; then \
+	@if podman ps -q --filter "publish=6379" | grep -q .; then \
 		echo "Stopping container on port 6379 to free it for dapr init..."; \
-		docker stop $$(docker ps -q --filter "publish=6379"); \
+		podman stop $$(podman ps -q --filter "publish=6379"); \
 	fi
 	@dapr init
 
@@ -309,8 +298,8 @@ ci-dapr-start:
 audit:
 	@pnpm audit --audit-level=high
 
-#ci: @ Run local CI pipeline (lint, vulncheck, build, test)
-ci: lint vulncheck build test
+#ci: @ Run local CI pipeline (lint, vulncheck, test, build)
+ci: lint vulncheck test build
 	@echo "Local CI pipeline passed."
 
 #ci-run: @ Run GitHub Actions workflow locally using act

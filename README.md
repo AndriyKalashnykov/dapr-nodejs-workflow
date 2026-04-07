@@ -15,6 +15,7 @@ make install       # install npm packages
 make dapr-init     # initialize Dapr (starts Redis, placement, scheduler containers)
 make up            # start PostgreSQL via Podman Compose
 make start         # build and start API server with Dapr sidecar (foreground)
+# -> http://localhost:3000
 ```
 
 ## Prerequisites
@@ -41,7 +42,7 @@ make deps
 
 ```bash
 # Terminal 1 -- start infrastructure and server
-make up            # start PostgreSQL via Docker Compose
+make up            # start PostgreSQL + Redis via Podman Compose
 make start         # build and start API server with Dapr sidecar (foreground)
 
 # Terminal 2 -- verify
@@ -88,7 +89,7 @@ make test-integration
 ### Run CI Locally
 
 ```bash
-make ci            # run lint, build, test locally
+make ci            # run lint, vulncheck, test, build locally
 make ci-run        # run GitHub Actions workflow locally via act (requires Docker)
 ```
 
@@ -202,7 +203,7 @@ Run `make help` to see all available targets.
 | Target | Description |
 |--------|-------------|
 | `make dapr-init` | Initialize Dapr runtime (one-time) |
-| `make up` | Start PostgreSQL via Docker/Podman Compose |
+| `make up` | Start PostgreSQL + Redis via Podman Compose |
 | `make down` | Stop and remove infrastructure containers |
 | `make postgres-start` | Start standalone PostgreSQL (alternative to `make up`) |
 | `make postgres-stop` | Stop standalone PostgreSQL |
@@ -231,7 +232,7 @@ Run `make help` to see all available targets.
 
 | Target | Description |
 |--------|-------------|
-| `make ci` | Run local CI pipeline (lint, vulncheck, build, test) |
+| `make ci` | Run local CI pipeline (lint, vulncheck, test, build) |
 | `make ci-run` | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
 | `make audit` | Audit dependencies for vulnerabilities |
 | `make release VERSION=vX.Y.Z` | Tag and push a release |
@@ -242,6 +243,7 @@ Run `make help` to see all available targets.
 |--------|-------------|
 | `make update` | Update dependencies to latest allowed versions |
 | `make upgrade` | Upgrade dependencies to latest versions (ignoring ranges) |
+| `make renovate` | Run Renovate locally in dry-run mode |
 | `make renovate-validate` | Validate Renovate configuration |
 
 ## CI/CD
