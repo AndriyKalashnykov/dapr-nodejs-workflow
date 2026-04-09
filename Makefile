@@ -11,7 +11,7 @@ PNPM_VERSION     := 10.33.0
 # renovate: datasource=github-releases depName=nektos/act
 ACT_VERSION      := 0.2.87
 # renovate: datasource=github-releases depName=dapr/cli
-DAPR_CLI_VERSION := 1.17.0
+DAPR_CLI_VERSION := 1.17.1
 
 #help: @ List available tasks
 help:
