@@ -1,0 +1,3 @@
+ignored:
+  - DL3008 # Pin apt-get package versions — base image is distroless, no apt usage
+failure-threshold: warning

@@ -46,6 +46,9 @@ env:
   # pnpm version is read from packageManager field in package.json by pnpm/action-setup.
   # Dapr CLI version is duplicated from Makefile DAPR_CLI_VERSION (no other source of truth).
   DAPR_CLI_VERSION: 1.17.1
+  # ZAP version is duplicated from Makefile ZAP_VERSION (same reason). Kept here so
+  # the cache key, image pull, and image save all reference a single value.
+  ZAP_VERSION: 2.17.0
 
 jobs:
   static-check:
@@ -172,11 +175,11 @@ jobs:
           make build
           make ci-dapr-start
 
-      - name: Test integration
+      - name: Test
         run: make test-integration
 
   e2e:
-    needs: [build]
+    needs: [build, test]
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -196,18 +199,22 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: "**/pnpm-lock.yaml"
 
-      - name: End-to-end test
+      - name: Run end-to-end tests
         run: make e2e
 
   docker:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [build, test, e2e]
+    # Runs on every push. Step-level `if: startsWith(github.ref, 'refs/tags/')`
+    # on Log in to GHCR / Install cosign / Sign, plus `push: ${{ … }}` on the
+    # multi-arch build, gates the tag-only behavior. Non-tag pushes still
+    # exercise gates 1-4 (build + Trivy + smoke + multi-arch build) to catch
+    # arm64 cross-compile regressions and cosign installer breakage early.
+    needs: [static-check, build, test, e2e]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
-      packages: write # GHCR push
-      id-token: write # cosign keyless OIDC (Sigstore Fulcio)
+      packages: write # GHCR push (tag-gated at step level)
+      id-token: write # cosign keyless OIDC (tag-gated at step level)
 
     steps:
       - name: Checkout
@@ -229,7 +236,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
           flavor: |
-            latest=true
+            latest=${{ startsWith(github.ref, 'refs/tags/') }}
           labels: |
             org.opencontainers.image.authors=Andriy Kalashnykov
 
@@ -256,34 +263,40 @@ jobs:
       - name: Smoke test
         run: make docker-smoke-test
 
+      # DAST steps are skipped under nektos/act: ZAP's docker-in-docker bind
+      # mount of $GITHUB_WORKSPACE/zap-output doesn't round-trip through the
+      # host Docker daemon, so the ZAP container can't write /zap/wrk/zap.yaml.
       - name: Cache ZAP image
+        if: ${{ vars.ACT != 'true' }}
         id: cache-zap
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: /tmp/zap-image.tar
-          key: zap-image-2.17.0-${{ runner.os }}
+          key: zap-image-${{ env.ZAP_VERSION }}-${{ runner.os }}
 
-      - name: Prepare ZAP image
+      - name: Load cached ZAP image
+        if: ${{ vars.ACT != 'true' }}
         run: |
           set -euo pipefail
           if [ -f /tmp/zap-image.tar ]; then
             echo "Loading ZAP from cache..."
             docker load -i /tmp/zap-image.tar
           else
-            echo "Pulling ghcr.io/zaproxy/zaproxy:2.17.0..."
-            docker pull ghcr.io/zaproxy/zaproxy:2.17.0
-            docker save ghcr.io/zaproxy/zaproxy:2.17.0 -o /tmp/zap-image.tar
+            echo "Pulling ghcr.io/zaproxy/zaproxy:${ZAP_VERSION}..."
+            docker pull "ghcr.io/zaproxy/zaproxy:${ZAP_VERSION}"
+            docker save "ghcr.io/zaproxy/zaproxy:${ZAP_VERSION}" -o /tmp/zap-image.tar
           fi
 
-      - name: DAST baseline scan
+      - name: OWASP ZAP baseline scan
+        if: ${{ vars.ACT != 'true' }}
         run: make dast-scan
 
-      - name: Remove test container
+      - name: Cleanup smoke container
         if: always()
         run: docker rm -f smoke-test 2>/dev/null || true
 
       - name: Upload DAST report
-        if: always()
+        if: ${{ always() && vars.ACT != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: zap-baseline-report
@@ -292,6 +305,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Log in to GHCR
+        if: startsWith(github.ref, 'refs/tags/')
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
@@ -305,7 +319,9 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
+          # Non-tag pushes still build multi-arch to catch arm64 cross-compile
+          # regressions on the commit that introduced them, but skip the registry push.
+          push: ${{ startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
@@ -314,6 +330,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Verify multi-arch manifest
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           REPO: ${{ github.repository }}
           DIGEST: ${{ steps.push.outputs.digest }}
@@ -322,9 +339,11 @@ jobs:
           make docker-verify-manifest IMAGE_REF="ghcr.io/${REPO_LC}@${DIGEST}"
 
       - name: Install cosign
+        if: startsWith(github.ref, 'refs/tags/')
         uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
       - name: Sign image with cosign
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           TAGS: ${{ steps.meta.outputs.tags }}
           DIGEST: ${{ steps.push.outputs.digest }}

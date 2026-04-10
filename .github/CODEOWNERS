@@ -1,0 +1,12 @@
+# CODEOWNERS enforces owner review on publishing-adjacent paths even if a
+# bot workflow (Claude, Renovate, etc.) is added later with contents: write.
+# See /harden-image-pipeline "Protecting the publish pipeline from bot workflows".
+
+.github/workflows/** @AndriyKalashnykov
+.github/actions/**   @AndriyKalashnykov
+Dockerfile           @AndriyKalashnykov
+Dockerfile.*         @AndriyKalashnykov
+docker-compose.yaml  @AndriyKalashnykov
+.dockerignore        @AndriyKalashnykov
+renovate.json        @AndriyKalashnykov
+CLAUDE.md            @AndriyKalashnykov

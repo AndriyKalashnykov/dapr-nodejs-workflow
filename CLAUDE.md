@@ -27,7 +27,7 @@ make test-integration    # Integration tests (requires running Dapr stack)
 
 # Stop everything
 make stop                # Stop Dapr sidecar and API server
-make down                # Stop PostgreSQL container
+make down                # Stop PostgreSQL + Redis containers
 ```
 
 ## Makefile Targets
@@ -42,6 +42,7 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | `make deps-act`      | Install act for local CI (GitHub Actions runner)                         |
 | `make deps-trivy`    | Install Trivy for filesystem security scanning                           |
 | `make deps-gitleaks` | Install gitleaks for secret scanning                                     |
+| `make deps-hadolint` | Install hadolint for Dockerfile linting                                  |
 | `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)       |
 | `make dapr-init`     | Initialize Dapr in local environment (stops conflicting Redis if needed) |
 
@@ -52,7 +53,7 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | `make build`            | Compile TypeScript to `dist/`                                                                                          |
 | `make format`           | Auto-fix formatting with Prettier                                                                                      |
 | `make format-check`     | Check formatting without modifying files                                                                               |
-| `make lint`             | Run Prettier check, ESLint (zero warnings), and `tsc --noEmit`                                                         |
+| `make lint`             | Run Prettier check, ESLint (zero warnings), `tsc --noEmit`, and hadolint on the Dockerfile                             |
 | `make vulncheck`        | Audit dependencies for known vulnerabilities (`pnpm audit --audit-level=moderate`)                                     |
 | `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                               |
 | `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                    |
@@ -63,12 +64,12 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Infrastructure
 
-| Target                | Description                                                      |
-| --------------------- | ---------------------------------------------------------------- |
-| `make up`             | Start PostgreSQL + Redis via Podman Compose                      |
-| `make down`           | Stop and remove Podman Compose containers                        |
-| `make postgres-start` | Start standalone PostgreSQL container (alternative to `make up`) |
-| `make postgres-stop`  | Stop standalone PostgreSQL container                             |
+| Target                | Description                                           |
+| --------------------- | ----------------------------------------------------- |
+| `make up`             | Start PostgreSQL + Redis via Podman Compose           |
+| `make down`           | Stop and remove Podman Compose containers             |
+| `make postgres-start` | Start PostgreSQL in Podman (alternative to `make up`) |
+| `make postgres-stop`  | Stop PostgreSQL Podman container                      |
 
 ### Run
 
@@ -101,9 +102,18 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | ----------------------------- | ----------------------------------------------------------------------- |
 | `make ci`                     | Run local CI pipeline (`format-check`, `static-check`, `test`, `build`) |
 | `make ci-run`                 | Run GitHub Actions workflow locally via `act` (requires Docker)         |
+| `make ci-run-tag`             | Run the workflow via `act` with a tag event (exercises the docker job)  |
 | `make release VERSION=vX.Y.Z` | Tag and push a release                                                  |
 
-The `ci-seed-db` and `ci-dapr-start` Makefile targets exist exclusively for the GitHub Actions `integration` job and are not intended for local use — use `make up` + `make start` locally instead.
+The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker-verify-manifest` Makefile targets exist exclusively for the GitHub Actions `integration` and `docker` jobs and are not intended for local use — use `make up` + `make start` (integration) or `make dast` / `make e2e` / `make image-*` (image workflow) locally instead.
+
+### Docker & Image
+
+| Target             | Description                                                |
+| ------------------ | ---------------------------------------------------------- |
+| `make image-build` | Build the production Docker image (multi-stage distroless) |
+| `make image-run`   | Run the built image standalone (no Dapr)                   |
+| `make image-stop`  | Stop the running image container                           |
 
 ## Architecture
 
@@ -116,18 +126,19 @@ src/
   __tests__/
     *.test.ts                Unit tests (Vitest)
     *.integration.test.ts    Integration tests (require running Dapr stack)
-components/
-  postgres.yaml              bindings.postgres -- local dev (password: daprrulz)
-  redis.yaml                 state.redis -- local dev (localhost:6379)
-dapr/ci/
-  postgres.yaml              bindings.postgres -- CI (password: postgres)
-  redis.yaml                 state.redis -- CI (localhost:6379)
-db/
+components/                  Dapr component configs -- local dev
+  postgres.yaml              bindings.postgres (password: daprrulz)
+  redis.yaml                 state.redis (localhost:6379)
+dapr/ci/                     Dapr component configs -- CI
+  postgres.yaml              bindings.postgres (password: postgres)
+  redis.yaml                 state.redis (localhost:6379)
+db/                          Schema and seed data
   baseline_ddl.sql           Table schema (users table)
   baseline_dml.sql           Seed data
 docker-compose.yaml          PostgreSQL + Redis for local development
 Dockerfile                   Multi-stage production image (distroless, non-root)
 .dockerignore                Excludes non-runtime files from build context
+.hadolint.yaml               Hadolint Dockerfile linter configuration
 ```
 
 ### Request Flow
@@ -184,15 +195,15 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 
 The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, and is reusable via `workflow_call`. Jobs:
 
-- **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck (single composite quality gate)
+- **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + hadolint + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck (single composite quality gate)
 - **build**: `make build` + `make smoke` (HTTP smoke test against the built server, no Dapr)
 - **test**: `make test` (Vitest unit tests)
 - **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling
 - **integration**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make test-integration` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests)
-- **docker** (tag-gated `v*` only): multi-arch build + push to GHCR with pre-push gates (Trivy image scan CRITICAL/HIGH blocking via `make docker-smoke-test`, ZAP baseline DAST scan via `make dast-scan`, post-push manifest verification via `make docker-verify-manifest`, cosign keyless OIDC signing). Buildkit in-manifest attestations (`provenance`/`sbom`) are explicitly disabled to keep the image index clean of `unknown/unknown` platform entries so GHCR's Packages UI renders the "OS / Arch" tab.
+- **docker**: runs on every push. Gates 1–3 (single-arch build, Trivy image scan CRITICAL/HIGH blocking, boot-marker smoke test via `make docker-smoke-test`) and Gate 4 (multi-arch build via `docker/build-push-action`) always run — catches arm64 cross-compile regressions and cosign installer breakage on the commit that introduced them. The ZAP baseline DAST scan via `make dast-scan` also runs every push. On tag pushes only, step-level `if: startsWith(github.ref, 'refs/tags/')` gates `Log in to GHCR`, `push: ${{ ... }}` on the multi-arch build, `Verify multi-arch manifest` via `make docker-verify-manifest`, `Install cosign`, and `Sign image with cosign` (Sigstore keyless OIDC signing by digest). Buildkit in-manifest attestations (`provenance`/`sbom`) are explicitly disabled to keep the image index clean of `unknown/unknown` platform entries so GHCR's Packages UI renders the "OS / Arch" tab.
 - **ci-pass**: gate job — runs after all upstream jobs and fails if any of them failed; intended as the single status check for branch protection
 
-Job dependencies: `static-check` -> `build` + `test` (parallel) -> `e2e` + `integration` (parallel) -> `docker` (tag-gated) -> `ci-pass`.
+Job dependencies: `static-check` -> `build` + `test` (parallel) -> `e2e` (needs `build`, `test`) + `integration` (needs `build`, `test`) (parallel); `docker` (needs `static-check`, `build`, `test`, `e2e`; runs every push, publishes + signs only on tag pushes) -> `ci-pass`.
 
 CI uses `--frozen-lockfile` for reproducible builds. The Makefile sets `PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)`, so `make install` automatically picks the right mode based on the `CI` environment variable.
 
@@ -237,7 +248,7 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 ## Upgrade Backlog
 
 - [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override; monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
-- [ ] Ubuntu 26.04 LTS releases Apr 2026 — watch for `ubuntu-latest` CI runner migration
+- [ ] Ubuntu 26.04 LTS shipped Apr 2026 — actively track the GitHub Actions `ubuntu-latest` runner migration (runners transition in stages after the release) and bump any hardcoded `ubuntu-24.04` / `ubuntu-22.04` `runs-on:` pins when the new image is stable
 - [ ] `dapr/setup-dapr@v2` runs on Node 20 (deprecated by GitHub Sep 2026) — no `v3` released yet, even `main` uses `node20`. Track [dapr/setup-dapr](https://github.com/dapr/setup-dapr) for an update
 - [ ] `pnpm/action-setup@v5` emits `[DEP0169] url.parse()` deprecation warning in CI logs — upstream issue, will resolve in a future patch
 - [ ] CI workflow `env: DAPR_CLI_VERSION` duplicates Makefile constant — `dapr/setup-dapr` has no auto-detect equivalent of `packageManager`. Either accept the duplication or add a Renovate custom regex

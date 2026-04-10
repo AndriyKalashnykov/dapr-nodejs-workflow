@@ -24,6 +24,8 @@ DAPR_CLI_VERSION := 1.17.1
 TRIVY_VERSION    := 0.69.3
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
 GITLEAKS_VERSION := 8.30.1
+# renovate: datasource=github-releases depName=hadolint/hadolint
+HADOLINT_VERSION := 2.14.0
 
 # renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
 ZAP_VERSION      := 2.17.0
@@ -41,7 +43,7 @@ PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)
 help:
 	@echo "Usage: make COMMAND"
 	@echo "Commands :"
-	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-22s\033[0m - %s\n", $$1, $$2}'
+	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-24s\033[0m - %s\n", $$1, $$2}'
 
 #deps: @ Check and install required dependencies (node, pnpm, podman, dapr, git)
 deps:
@@ -68,17 +70,7 @@ deps:
 			echo "ERROR: Podman is required. Install from https://podman.io/getting-started/installation"; exit 1; \
 		}; \
 		command -v dapr >/dev/null 2>&1 || { echo "Installing Dapr CLI v$(DAPR_CLI_VERSION)..."; \
-			if [ "$$(uname)" = "Linux" ]; then \
-				wget -q https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh -O - | /bin/bash; \
-			elif [ "$$(uname)" = "Darwin" ]; then \
-				if command -v brew >/dev/null 2>&1; then \
-					brew install dapr/tap/dapr-cli; \
-				else \
-					curl -fsSL https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh | /bin/bash; \
-				fi; \
-			else \
-				echo "ERROR: Could not install Dapr CLI. Install manually from https://docs.dapr.io/getting-started/install-dapr-cli/"; exit 1; \
-			fi; \
+			curl -fsSL https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh | /bin/bash -s $(DAPR_CLI_VERSION); \
 		}; \
 	fi
 	@command -v git >/dev/null 2>&1 || { \
@@ -90,17 +82,25 @@ deps:
 deps-act: deps
 	@command -v act >/dev/null 2>&1 || { echo "Installing act v$(ACT_VERSION)..."; \
 		mkdir -p $$HOME/.local/bin; \
-		if [ "$$(uname)" = "Linux" ]; then \
-			curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | bash -s -- -b $$HOME/.local/bin v$(ACT_VERSION); \
-		elif [ "$$(uname)" = "Darwin" ]; then \
-			if command -v brew >/dev/null 2>&1; then \
-				brew install act; \
-			else \
-				curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | bash -s -- -b $$HOME/.local/bin v$(ACT_VERSION); \
-			fi; \
-		else \
-			echo "ERROR: Could not install act. Install manually from https://github.com/nektos/act"; exit 1; \
-		fi; \
+		curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | bash -s -- -b $$HOME/.local/bin v$(ACT_VERSION); \
+	}
+
+#deps-hadolint: @ Install hadolint for Dockerfile linting
+deps-hadolint:
+	@command -v hadolint >/dev/null 2>&1 || { echo "Installing hadolint v$(HADOLINT_VERSION)..."; \
+		mkdir -p $$HOME/.local/bin; \
+		OS=$$(uname | tr '[:upper:]' '[:lower:]'); \
+		ARCH=$$(uname -m); \
+		case "$$OS-$$ARCH" in \
+			linux-x86_64)  SUFFIX=Linux-x86_64 ;; \
+			linux-aarch64) SUFFIX=Linux-arm64 ;; \
+			darwin-x86_64) SUFFIX=Darwin-x86_64 ;; \
+			darwin-arm64)  SUFFIX=Darwin-x86_64 ;; \
+			*) echo "ERROR: unsupported platform $$OS-$$ARCH"; exit 1 ;; \
+		esac; \
+		curl -sSfL -o /tmp/hadolint "https://github.com/hadolint/hadolint/releases/download/v$(HADOLINT_VERSION)/hadolint-$$SUFFIX"; \
+		install -m 755 /tmp/hadolint $$HOME/.local/bin/hadolint; \
+		rm -f /tmp/hadolint; \
 	}
 
 #deps-trivy: @ Install Trivy for filesystem security scanning
@@ -143,11 +143,12 @@ format: install
 format-check: install
 	@pnpm exec prettier --check .
 
-#lint: @ Run Prettier check, ESLint, and TypeScript noEmit
-lint: install
+#lint: @ Run Prettier check, ESLint, TypeScript noEmit, and hadolint
+lint: install deps-hadolint
 	@pnpm exec prettier --check .
 	@pnpm exec eslint --max-warnings 0 src/
 	@pnpm exec tsc --noEmit
+	@hadolint Dockerfile
 
 #vulncheck: @ Audit dependencies for known vulnerabilities
 vulncheck: install
@@ -499,10 +500,17 @@ ci-dapr-start:
 ci: format-check static-check test build
 	@echo "Local CI pipeline passed."
 
-#ci-run: @ Run GitHub Actions workflow locally using act
+#ci-run: @ Run GitHub Actions workflow locally using act (simulates branch push)
 ci-run: deps-act
 	@docker container prune -f 2>/dev/null || true
-	@act push --container-architecture linux/amd64 \
+	@# Force a branch-push event so act doesn't pick up a tag on HEAD. Without
+	@# this, running `ci-run` on a tagged commit triggers the tag-gated docker
+	@# publish path (Log in to GHCR / Build and push / cosign) and can push to
+	@# the real registry. Use `ci-run-tag` to explicitly exercise the tag path.
+	@echo '{"ref":"refs/heads/main"}' > /tmp/act-push-event.json
+	@act push \
+		--eventpath /tmp/act-push-event.json \
+		--container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts
 
 #renovate: @ Run Renovate locally in dry-run mode
@@ -513,7 +521,7 @@ renovate: deps
 renovate-validate: deps
 	@npx --yes renovate --platform=local
 
-.PHONY: help deps deps-act deps-trivy deps-gitleaks clean install build format format-check \
+.PHONY: help deps deps-act deps-trivy deps-gitleaks deps-hadolint clean install build format format-check \
 	lint vulncheck secrets trivy-fs deps-prune deps-prune-check static-check \
 	test test-watch test-integration smoke check update upgrade \
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \

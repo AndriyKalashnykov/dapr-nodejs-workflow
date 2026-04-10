@@ -7,27 +7,27 @@
 
 A Dapr Workflow demo using the [Dapr JS SDK](https://github.com/dapr/js-sdk) with an Express HTTP API. The app schedules durable workflows that query PostgreSQL through Dapr bindings, with Redis as the workflow state backend.
 
-| Component       | Technology                                    |
-| --------------- | --------------------------------------------- |
-| Language        | TypeScript 6                                  |
-| Runtime         | Node.js 24.14.1                               |
-| Web framework   | Express 5                                     |
-| Workflow engine | Dapr Workflow via `@dapr/dapr` 3.6            |
-| State store     | Redis (via Dapr state component)              |
-| Data binding    | PostgreSQL 18 (via Dapr binding component)    |
-| Container CLI   | Podman (Docker-compatible) + Podman Compose   |
-| Testing         | Vitest 4 (unit + integration)                 |
-| Linting         | ESLint 10 + typescript-eslint 8               |
-| Formatting      | Prettier 3                                    |
-| Security        | gitleaks, Trivy filesystem scan, `pnpm audit` |
-| CI/CD           | GitHub Actions, Renovate, act (local CI)      |
+| Component       | Technology                                               |
+| --------------- | -------------------------------------------------------- |
+| Language        | TypeScript 6                                             |
+| Runtime         | Node.js 24                                               |
+| Web framework   | Express 5                                                |
+| Workflow engine | Dapr Workflow via `@dapr/dapr` 3.6                       |
+| State store     | Redis (via Dapr state component)                         |
+| Data binding    | PostgreSQL 18 (via Dapr binding component)               |
+| Container CLI   | Podman (Docker-compatible) + Podman Compose              |
+| Testing         | Vitest 4 (unit + integration)                            |
+| Linting         | ESLint 10 + typescript-eslint 8, hadolint for Dockerfile |
+| Formatting      | Prettier 3                                               |
+| Security        | gitleaks, Trivy filesystem scan, `pnpm audit`            |
+| CI/CD           | GitHub Actions, Renovate, act (local CI)                 |
 
 ## Quick Start
 
 ```bash
 make deps          # install system dependencies (node, pnpm, podman, dapr, git)
 make dapr-init     # initialize Dapr (one-time; starts Redis, placement, scheduler)
-make up            # start PostgreSQL via Podman Compose
+make up            # start PostgreSQL + Redis via Podman Compose
 make start         # build and start API server with Dapr sidecar (foreground)
 # -> http://localhost:3000
 ```
@@ -37,7 +37,7 @@ make start         # build and start API server with Dapr sidecar (foreground)
 | Tool                                                               | Version  | Purpose                                                                  |
 | ------------------------------------------------------------------ | -------- | ------------------------------------------------------------------------ |
 | [GNU Make](https://www.gnu.org/software/make/)                     | 3.81+    | Build orchestration                                                      |
-| [Node.js](https://nodejs.org/)                                     | 24.14.1+ | JavaScript runtime (installed by `make deps`)                            |
+| [Node.js](https://nodejs.org/)                                     | 24+      | JavaScript runtime (installed by `make deps`)                            |
 | [pnpm](https://pnpm.io/)                                           | 10.33.0+ | Package manager (installed by `make deps`)                               |
 | [Podman](https://podman.io/)                                       | latest   | Container runtime for PostgreSQL/Redis                                   |
 | [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17.1+  | Dapr sidecar management (installed by `make deps`)                       |
@@ -65,6 +65,7 @@ Run `make help` to see all targets in one list.
 | `make deps-act`      | Install act for local CI (GitHub Actions runner)                        |
 | `make deps-trivy`    | Install Trivy for filesystem security scanning                          |
 | `make deps-gitleaks` | Install gitleaks for secret scanning                                    |
+| `make deps-hadolint` | Install hadolint for Dockerfile linting                                 |
 | `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)      |
 | `make clean`         | Remove build artifacts and node_modules                                 |
 
@@ -75,7 +76,7 @@ Run `make help` to see all targets in one list.
 | `make build`            | Build TypeScript to `dist/`                                                       |
 | `make format`           | Auto-fix formatting with Prettier                                                 |
 | `make format-check`     | Check formatting without modifying files                                          |
-| `make lint`             | Run Prettier check, ESLint, and TypeScript noEmit                                 |
+| `make lint`             | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                       |
 | `make vulncheck`        | Audit dependencies for known vulnerabilities                                      |
 | `make secrets`          | Scan for hardcoded secrets with gitleaks                                          |
 | `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations               |
@@ -99,8 +100,8 @@ Run `make help` to see all targets in one list.
 | `make dapr-init`      | Initialize Dapr in local environment (stops conflicting Redis if needed) |
 | `make up`             | Start PostgreSQL and Redis via Podman Compose                            |
 | `make down`           | Stop infrastructure services and remove containers                       |
-| `make postgres-start` | Start standalone PostgreSQL (alternative to `make up`)                   |
-| `make postgres-stop`  | Stop standalone PostgreSQL                                               |
+| `make postgres-start` | Start PostgreSQL in Podman                                               |
+| `make postgres-stop`  | Stop PostgreSQL Podman container                                         |
 
 ### Run & Verify
 
@@ -120,9 +121,20 @@ Run `make help` to see all targets in one list.
 | `make check`                  | Run full local verification (format-check, static-check, test, build)        |
 | `make ci`                     | Run local CI pipeline (format-check, static-check, test, build)              |
 | `make ci-run`                 | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
+| `make ci-run-tag`             | Run GitHub Actions workflow locally with a tag event (exercises docker job)  |
 | `make release VERSION=vX.Y.Z` | Create and push a release tag                                                |
 
-> The `ci-seed-db` and `ci-dapr-start` Makefile targets exist for the `integration` GitHub Actions job (which provisions PostgreSQL and Dapr CLI on the runner). They are not intended for local use — use `make up` + `make start` locally instead.
+> The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker-verify-manifest` Makefile targets are called exclusively from CI (service-container provisioning, pre-push image gating, and multi-arch manifest verification). They are not intended for local use — use `make up` + `make start` locally instead.
+
+### Docker & Image
+
+| Target             | Description                                     |
+| ------------------ | ----------------------------------------------- |
+| `make image-build` | Build the production Docker image (multi-stage) |
+| `make image-run`   | Run the Docker image standalone (no Dapr)       |
+| `make image-stop`  | Stop the running image container                |
+| `make e2e`         | End-to-end test of the production Docker image  |
+| `make dast`        | ZAP baseline DAST scan against the built image  |
 
 ### Utilities
 
@@ -180,15 +192,15 @@ docker-compose.yaml          PostgreSQL + Redis for local development
 
 GitHub Actions runs on every push to `main`, version tags (`v*`), and pull requests. The workflow is reusable via `workflow_call`.
 
-| Job              | Depends on       | Steps                                                                                                                           |
-| ---------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| **static-check** | —                | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, `pnpm audit`, gitleaks, Trivy fs scan, depcheck)                   |
-| **build**        | static-check     | `make build` + `make smoke` (HTTP smoke test against the built server)                                                          |
-| **test**         | static-check     | `make test` (Vitest unit tests)                                                                                                 |
-| **e2e**          | build            | `make e2e` (build Docker image, start container, validate HTTP endpoints)                                                       |
-| **integration**  | build, test      | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make test-integration` (PostgreSQL service container + Dapr CLI 1.17.1) |
-| **docker**       | build, test, e2e | Tag-gated (`v*` only): multi-arch build + push to GHCR with pre-push security gates (see below)                                 |
-| **ci-pass**      | all of the above | Gate job: fails if any upstream job failed                                                                                      |
+| Job              | Depends on                     | Steps                                                                                                                                               |
+| ---------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **static-check** | —                              | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck)                             |
+| **build**        | static-check                   | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                              |
+| **test**         | static-check                   | `make test` (Vitest unit tests)                                                                                                                     |
+| **e2e**          | build, test                    | `make e2e` (build Docker image, start container, validate HTTP endpoints)                                                                           |
+| **integration**  | build, test                    | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make test-integration` (PostgreSQL service container + Dapr CLI 1.17.1)                     |
+| **docker**       | static-check, build, test, e2e | Runs every push; gates 1–4 (build + Trivy + smoke + multi-arch build) always run, registry push + cosign signing are tag-gated (`v*`) at step level |
+| **ci-pass**      | all of the above               | Gate job: fails if any upstream job failed                                                                                                          |
 
 ### Pre-push image hardening
 
@@ -218,6 +230,14 @@ The `cleanup-runs.yml` workflow runs weekly to delete old workflow runs and stal
 
 [Renovate](https://docs.renovatebot.com/) keeps dependencies up to date with platform automerge enabled. Tool versions pinned in the `Makefile` are tracked via inline `# renovate:` comments.
 
+### Required Secrets and Variables
+
+| Name  | Type     | Used by           | How to set                                                                                                                                                                                                                                                                         |
+| ----- | -------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACT` | Variable | `integration` job | Set to `true` under [nektos/act](https://github.com/nektos/act) to skip the `integration` job — its PostgreSQL service container and `psql` tooling aren't available inside act. Set via **Settings > Secrets and variables > Actions > Variables tab > New repository variable**. |
+
+`GITHUB_TOKEN` is provisioned automatically by GitHub Actions; no manual setup is needed.
+
 ## Usage
 
 ### Run with Dapr
@@ -243,7 +263,7 @@ curl http://localhost:3000/
 
 ```bash
 make stop          # stop Dapr sidecar and API server
-make down          # stop PostgreSQL container
+make down          # stop PostgreSQL + Redis containers
 ```
 
 ## API

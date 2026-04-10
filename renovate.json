@@ -51,12 +51,14 @@
       "description": "Group devDependencies non-major updates",
       "matchDepTypes": ["devDependencies"],
       "matchUpdateTypes": ["minor", "patch"],
-      "groupName": "dev-dependencies"
+      "groupName": "dev-dependencies",
+      "automerge": true
     },
     {
       "description": "Group type definitions",
       "matchPackageNames": ["/^@types\\//"],
-      "groupName": "type-definitions"
+      "groupName": "type-definitions",
+      "automerge": true
     },
     {
       "description": "Group Dapr SDK updates",
