@@ -25,6 +25,12 @@ TRIVY_VERSION    := 0.69.3
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
 GITLEAKS_VERSION := 8.30.1
 
+# Container CLI: prefer docker, fall back to podman (local dev uses podman).
+DOCKER ?= $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null || echo docker)
+IMAGE_NAME := $(APP_NAME)
+IMAGE_TAG  ?= $(CURRENTTAG)
+IMAGE      := $(IMAGE_NAME):$(IMAGE_TAG)
+
 # Use --frozen-lockfile in CI for reproducible installs; allow lockfile updates locally.
 PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)
 
@@ -306,6 +312,58 @@ tag-release: check-version
 	@git push
 	@echo "Done."
 
+# === Docker image targets ===
+
+#image-build: @ Build production Docker image (multi-stage)
+image-build: build
+	@$(DOCKER) build -t $(IMAGE) .
+
+#image-run: @ Run Docker image standalone (no Dapr)
+image-run: image-stop
+	@$(DOCKER) run --rm -d --name $(IMAGE_NAME) -p $(PORT):3000 $(IMAGE)
+	@echo "Container started -> http://localhost:$(PORT)"
+
+#image-stop: @ Stop Docker image container
+image-stop:
+	@$(DOCKER) rm -f $(IMAGE_NAME) >/dev/null 2>&1 || true
+
+#e2e: @ End-to-end test of the production Docker image
+e2e: image-build
+	@SVC=$(IMAGE_NAME)-e2e; \
+	HOST_PORT=3100; \
+	trap "$(DOCKER) rm -f $$SVC >/dev/null 2>&1 || true" EXIT; \
+	echo "Starting container $$SVC on port $$HOST_PORT..."; \
+	$(DOCKER) run -d --name $$SVC -p $$HOST_PORT:3000 $(IMAGE) >/dev/null; \
+	echo "Waiting for HTTP..."; \
+	for i in $$(seq 1 30); do \
+		curl -sf "http://localhost:$$HOST_PORT/" >/dev/null 2>&1 && break; \
+		sleep 1; \
+		[ "$$i" -eq 30 ] && { echo "Container failed to start:"; $(DOCKER) logs $$SVC; exit 1; }; \
+	done; \
+	echo ""; \
+	echo "[1/3] GET / (health endpoint)"; \
+	BODY=$$(curl -sf "http://localhost:$$HOST_PORT/"); \
+	echo "  body: $$BODY"; \
+	echo "$$BODY" | grep -q "Dapr Workflow API" || { echo "FAIL: unexpected body"; exit 1; }; \
+	echo "  PASS"; \
+	echo ""; \
+	echo "[2/3] POST /process-payload (expect Dapr unreachable error)"; \
+	HTTP=$$(curl -s -o /tmp/e2e-resp.json -w "%{http_code}" -X POST \
+		"http://localhost:$$HOST_PORT/process-payload" \
+		-H "Content-Type: application/json" \
+		-d '{"name":"e2e-test","data":{"key":"value"}}'); \
+	echo "  HTTP $$HTTP"; \
+	cat /tmp/e2e-resp.json; echo; \
+	echo "$$HTTP" | grep -q '^5' || { echo "FAIL: expected 5xx, got $$HTTP"; exit 1; }; \
+	grep -qi "dapr\|sidecar" /tmp/e2e-resp.json || { echo "FAIL: error should mention Dapr sidecar"; exit 1; }; \
+	echo "  PASS"; \
+	echo ""; \
+	echo "[3/3] Container logs sanity"; \
+	$(DOCKER) logs $$SVC 2>&1 | grep -q "REST API server running" || { echo "FAIL: server start banner missing"; exit 1; }; \
+	echo "  PASS"; \
+	echo ""; \
+	echo "e2e tests passed"
+
 # === CI-specific targets ===
 # These are CI-only because they assume infrastructure (PostgreSQL service container,
 # pre-installed Dapr CLI) provided by GitHub Actions setup actions. The general
@@ -369,4 +427,5 @@ renovate-validate: deps
 	test test-watch test-integration smoke check update upgrade \
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
+	image-build image-run image-stop e2e \
 	ci-seed-db ci-dapr-start ci ci-run renovate renovate-validate

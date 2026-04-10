@@ -1,0 +1,49 @@
+# Build artifacts
+dist/
+coverage/
+
+# Dependencies (reinstalled inside container)
+node_modules/
+.pnpm-store/
+
+# Version control
+.git/
+.github/
+.gitignore
+
+# IDE and editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# CI and tooling
+.actrc
+.claude/
+.prettierignore
+
+# Documentation (not needed at runtime)
+*.md
+LICENSE
+docs/
+
+# Dapr components (mounted separately at runtime)
+components/
+dapr/
+
+# Database scripts (applied separately)
+db/
+
+# Test infrastructure
+docker-compose.yaml
+vitest.config.ts
+vitest.integration.config.ts
+src/__tests__/
+
+# Environment files
+.env*
+*.local
+
+# OS artifacts
+.DS_Store
+Thumbs.db

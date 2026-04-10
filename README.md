@@ -185,8 +185,32 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 | **static-check** | —                | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, `pnpm audit`, gitleaks, Trivy fs scan, depcheck)                   |
 | **build**        | static-check     | `make build` + `make smoke` (HTTP smoke test against the built server)                                                          |
 | **test**         | static-check     | `make test` (Vitest unit tests)                                                                                                 |
+| **e2e**          | build            | `make e2e` (build Docker image, start container, validate HTTP endpoints)                                                       |
 | **integration**  | build, test      | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make test-integration` (PostgreSQL service container + Dapr CLI 1.17.1) |
+| **docker**       | build, test, e2e | Tag-gated (`v*` only): multi-arch build + push to GHCR with pre-push security gates (see below)                                 |
 | **ci-pass**      | all of the above | Gate job: fails if any upstream job failed                                                                                      |
+
+### Pre-push image hardening
+
+The `docker` job runs the following gates **before** any image is pushed to GHCR. Any gate failure blocks the release.
+
+| #   | Gate                                             | Catches                                                     | Tool                                          |
+| --- | ------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------- |
+| 1   | Build local single-arch image                    | Build regressions on the runner architecture                | `docker/build-push-action` with `load: true`  |
+| 2   | **Trivy image scan** (CRITICAL/HIGH blocking)    | CVEs in the base image, OS packages, build layers           | `aquasecurity/trivy-action` with `image-ref:` |
+| 3   | **Smoke test**                                   | Image boots correctly on its own (Node.js boot-marker grep) | `docker run` + log grep                       |
+| 4   | Multi-arch build + push                          | Publishes for `linux/amd64` and `linux/arm64`               | `docker/build-push-action`                    |
+| 5   | **SLSA L2 build provenance** (`provenance: max`) | Cryptographic record of how the image was built             | `docker/build-push-action` native attestation |
+| 6   | **SBOM attestation** (`sbom: true`)              | Software Bill of Materials in the manifest                  | `docker/build-push-action` native attestation |
+| 7   | **Cosign keyless OIDC signing**                  | Sigstore signature on the manifest digest                   | `sigstore/cosign-installer` + `cosign sign`   |
+
+Verify a published image's signature:
+
+```bash
+cosign verify ghcr.io/andriykalashnykov/dapr-nodejs-workflow:<tag> \
+  --certificate-identity-regexp 'https://github\.com/AndriyKalashnykov/dapr-nodejs-workflow/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 The `cleanup-runs.yml` workflow runs weekly to delete old workflow runs and stale caches via the native `gh` CLI.
 

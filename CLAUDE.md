@@ -121,6 +121,8 @@ db/
   baseline_ddl.sql           Table schema (users table)
   baseline_dml.sql           Seed data
 docker-compose.yaml          PostgreSQL + Redis for local development
+Dockerfile                   Multi-stage production image (distroless, non-root)
+.dockerignore                Excludes non-runtime files from build context
 ```
 
 ### Request Flow
@@ -180,10 +182,12 @@ The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, an
 - **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck (single composite quality gate)
 - **build**: `make build` + `make smoke` (HTTP smoke test against the built server, no Dapr)
 - **test**: `make test` (Vitest unit tests)
+- **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling
 - **integration**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make test-integration` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests)
+- **docker** (tag-gated `v*` only): multi-arch build + push to GHCR with pre-push gates (Trivy image scan CRITICAL/HIGH blocking, Node.js boot-marker smoke test, `provenance: mode=max`, `sbom: true`, cosign keyless OIDC signing)
 - **ci-pass**: gate job — runs after all upstream jobs and fails if any of them failed; intended as the single status check for branch protection
 
-Job dependencies: `static-check` -> `build` (parallel) and `test` (parallel) -> `integration` (after both `build` and `test`) -> `ci-pass`.
+Job dependencies: `static-check` -> `build` + `test` (parallel) -> `e2e` + `integration` (parallel) -> `docker` (tag-gated) -> `ci-pass`.
 
 CI uses `--frozen-lockfile` for reproducible builds. The Makefile sets `PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)`, so `make install` automatically picks the right mode based on the `CI` environment variable.
 
