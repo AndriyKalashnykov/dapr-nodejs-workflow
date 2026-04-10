@@ -227,10 +227,13 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 
 ## Upgrade Backlog
 
-- [ ] `tsconfig.json` uses legacy comment-heavy format with `ES2020` target — Node 24 supports ES2024+; consider modernizing
-- [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override; monitor for upstream fix in Dapr JS SDK
-- [ ] Ubuntu 26.04 LTS releases Apr 2026 -- watch for `ubuntu-latest` CI runner migration
-- [ ] `typescript-eslint` peer dep warns about TypeScript 6.0.2 (`>=4.8.4 <6.0.0`) — works but monitor for official TS6 support
+- [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override; monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
+- [ ] Ubuntu 26.04 LTS releases Apr 2026 — watch for `ubuntu-latest` CI runner migration
+- [ ] `dapr/setup-dapr@v2` runs on Node 20 (deprecated by GitHub Sep 2026) — no `v3` released yet, even `main` uses `node20`. Track [dapr/setup-dapr](https://github.com/dapr/setup-dapr) for an update
+- [ ] `pnpm/action-setup@v5` emits `[DEP0169] url.parse()` deprecation warning in CI logs — upstream issue, will resolve in a future patch
+- [ ] CI workflow `env: DAPR_CLI_VERSION` duplicates Makefile constant — `dapr/setup-dapr` has no auto-detect equivalent of `packageManager`. Either accept the duplication or add a Renovate custom regex
+- [ ] `postgres:18-alpine` digest is hardcoded in `ci.yml` AND `docker-compose.yaml` — only the compose pin is Renovate-tracked, so the CI workflow will silently lag. Consider a custom regex or refactor CI to read from compose
+- [ ] Dapr runtime is unpinned (`dapr init` pulls latest) — consider `--runtime-version $(DAPR_RUNTIME_VERSION)` for reproducibility
 
 ## Skills
 

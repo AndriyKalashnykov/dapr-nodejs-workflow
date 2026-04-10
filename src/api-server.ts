@@ -7,7 +7,7 @@ import {
   modifyPayloadActivity,
   delayActivity,
   fetchPostgresDataActivity,
-} from "./data-request-workflow";
+} from "./data-request-workflow.js";
 
 // Define interfaces for API responses
 interface ScheduleResponse {

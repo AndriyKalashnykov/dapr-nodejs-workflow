@@ -43,8 +43,8 @@ permissions:
   contents: read
 
 env:
-  # Keep in sync with Makefile PNPM_VERSION and DAPR_CLI_VERSION
-  PNPM_VERSION: 10.33.0
+  # pnpm version is read from packageManager field in package.json by pnpm/action-setup.
+  # Dapr CLI version is duplicated from Makefile DAPR_CLI_VERSION (no other source of truth).
   DAPR_CLI_VERSION: 1.17.1
 
 jobs:
@@ -61,8 +61,7 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-        with:
-          version: ${{ env.PNPM_VERSION }}
+        # version is read from packageManager field in package.json
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
@@ -86,8 +85,7 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-        with:
-          version: ${{ env.PNPM_VERSION }}
+        # version is read from packageManager field in package.json
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
@@ -114,8 +112,7 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-        with:
-          version: ${{ env.PNPM_VERSION }}
+        # version is read from packageManager field in package.json
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
@@ -154,8 +151,7 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-        with:
-          version: ${{ env.PNPM_VERSION }}
+        # version is read from packageManager field in package.json
 
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:

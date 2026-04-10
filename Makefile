@@ -155,11 +155,11 @@ trivy-fs: deps-trivy
 #deps-prune: @ Show unused/redundant Node.js dependencies
 deps-prune: install
 	@echo "Checking for unused Node.js packages..."
-	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,ts-node,readline-sync,@eslint/js,typescript-eslint" || true
+	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" || true
 
 #deps-prune-check: @ Verify no prunable dependencies (CI gate)
 deps-prune-check: install
-	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,ts-node,readline-sync,@eslint/js,typescript-eslint" --quiet \
+	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" --quiet \
 		|| { echo "ERROR: unused dependencies found. Run 'make deps-prune' to see them."; exit 1; }
 
 #static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check)
