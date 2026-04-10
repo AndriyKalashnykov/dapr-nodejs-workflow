@@ -1,0 +1,16 @@
+# Build / dependency artifacts
+node_modules/
+dist/
+coverage/
+
+# pnpm content-addressable store (created locally inside act/CI containers)
+.pnpm-store/
+
+# Lockfiles (managed by package manager)
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Generated / vendored files
+*.min.js
+*.min.css

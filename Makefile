@@ -1,5 +1,10 @@
 .DEFAULT_GOAL := help
 
+# Ensure tools installed to $HOME/.local/bin (act, trivy, gitleaks) are on PATH
+# for every recipe — needed inside the act runner container where this path is
+# not preconfigured. Exported so every sub-shell the recipes spawn inherits it.
+export PATH := $(HOME)/.local/bin:$(PATH)
+
 APP_NAME       := dapr-nodejs-workflow
 CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 PORT ?= 3000
@@ -7,11 +12,21 @@ PORT ?= 3000
 # --- Pinned tool versions ---
 # renovate: datasource=github-releases depName=nvm-sh/nvm
 NVM_VERSION      := 0.40.4
+# Single source of truth: .nvmrc — see /makefile skill §3 (file-based derivation)
+NODE_VERSION     := $(shell cat .nvmrc 2>/dev/null || echo 24)
+# renovate: datasource=npm depName=pnpm
 PNPM_VERSION     := 10.33.0
 # renovate: datasource=github-releases depName=nektos/act
 ACT_VERSION      := 0.2.87
 # renovate: datasource=github-releases depName=dapr/cli
 DAPR_CLI_VERSION := 1.17.1
+# renovate: datasource=github-releases depName=aquasecurity/trivy
+TRIVY_VERSION    := 0.69.3
+# renovate: datasource=github-releases depName=gitleaks/gitleaks
+GITLEAKS_VERSION := 8.30.1
+
+# Use --frozen-lockfile in CI for reproducible installs; allow lockfile updates locally.
+PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)
 
 #help: @ List available tasks
 help:
@@ -24,12 +39,12 @@ deps:
 	@echo "Checking dependencies..."
 	@command -v node >/dev/null 2>&1 || { echo "Installing Node.js via nvm..."; \
 		if [ -s "$$HOME/.nvm/nvm.sh" ]; then \
-			. "$$HOME/.nvm/nvm.sh" && nvm install $$(cat .nvmrc); \
+			. "$$HOME/.nvm/nvm.sh" && nvm install $(NODE_VERSION); \
 		else \
 			echo "Installing nvm..."; \
 			curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
 			export NVM_DIR="$$HOME/.nvm"; \
-			. "$$NVM_DIR/nvm.sh" && nvm install $$(cat .nvmrc); \
+			. "$$NVM_DIR/nvm.sh" && nvm install $(NODE_VERSION); \
 		fi; \
 	}
 	@command -v pnpm >/dev/null 2>&1 || { echo "Installing pnpm..."; \
@@ -39,22 +54,24 @@ deps:
 			npm install -g pnpm@$(PNPM_VERSION); \
 		fi; \
 	}
-	@command -v podman >/dev/null 2>&1 || { \
-		echo "ERROR: Podman is required. Install from https://podman.io/getting-started/installation"; exit 1; \
-	}
-	@command -v dapr >/dev/null 2>&1 || { echo "Installing Dapr CLI v$(DAPR_CLI_VERSION)..."; \
-		if [ "$$(uname)" = "Linux" ]; then \
-			wget -q https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh -O - | /bin/bash; \
-		elif [ "$$(uname)" = "Darwin" ]; then \
-			if command -v brew >/dev/null 2>&1; then \
-				brew install dapr/tap/dapr-cli; \
+	@if [ -z "$$CI" ]; then \
+		command -v podman >/dev/null 2>&1 || { \
+			echo "ERROR: Podman is required. Install from https://podman.io/getting-started/installation"; exit 1; \
+		}; \
+		command -v dapr >/dev/null 2>&1 || { echo "Installing Dapr CLI v$(DAPR_CLI_VERSION)..."; \
+			if [ "$$(uname)" = "Linux" ]; then \
+				wget -q https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh -O - | /bin/bash; \
+			elif [ "$$(uname)" = "Darwin" ]; then \
+				if command -v brew >/dev/null 2>&1; then \
+					brew install dapr/tap/dapr-cli; \
+				else \
+					curl -fsSL https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh | /bin/bash; \
+				fi; \
 			else \
-				curl -fsSL https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh | /bin/bash; \
+				echo "ERROR: Could not install Dapr CLI. Install manually from https://docs.dapr.io/getting-started/install-dapr-cli/"; exit 1; \
 			fi; \
-		else \
-			echo "ERROR: Could not install Dapr CLI. Install manually from https://docs.dapr.io/getting-started/install-dapr-cli/"; exit 1; \
-		fi; \
-	}
+		}; \
+	fi
 	@command -v git >/dev/null 2>&1 || { \
 		echo "ERROR: Git is required. Install from https://git-scm.com/downloads"; exit 1; \
 	}
@@ -77,29 +94,77 @@ deps-act: deps
 		fi; \
 	}
 
+#deps-trivy: @ Install Trivy for filesystem security scanning
+deps-trivy:
+	@command -v trivy >/dev/null 2>&1 || { echo "Installing trivy v$(TRIVY_VERSION)..."; \
+		mkdir -p $$HOME/.local/bin; \
+		curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $$HOME/.local/bin v$(TRIVY_VERSION); \
+	}
+
+#deps-gitleaks: @ Install gitleaks for secret scanning
+deps-gitleaks:
+	@command -v gitleaks >/dev/null 2>&1 || { echo "Installing gitleaks v$(GITLEAKS_VERSION)..."; \
+		mkdir -p $$HOME/.local/bin; \
+		OS=$$(uname | tr '[:upper:]' '[:lower:]'); \
+		ARCH=$$(uname -m); \
+		case "$$ARCH" in x86_64) ARCH=x64;; aarch64|arm64) ARCH=arm64;; esac; \
+		curl -sfL -o /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v$(GITLEAKS_VERSION)/gitleaks_$(GITLEAKS_VERSION)_$${OS}_$${ARCH}.tar.gz" && \
+		tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks && \
+		install -m 755 /tmp/gitleaks $$HOME/.local/bin/gitleaks && \
+		rm -f /tmp/gitleaks.tar.gz /tmp/gitleaks; \
+	}
+
 #clean: @ Remove build artifacts and node_modules
 clean:
 	@rm -rf node_modules/ dist/
 
-#install: @ Install npm dependencies
+#install: @ Install npm dependencies (uses --frozen-lockfile when CI=true)
 install: deps
-	@pnpm install
+	@$(PNPM_INSTALL)
 
 #build: @ Build TypeScript to dist/
 build: install
 	@pnpm build
 
-#lint: @ Run ESLint on source files
-lint: install
-	@pnpm exec eslint --max-warnings 0 src/
-
 #format: @ Auto-fix formatting with Prettier
 format: install
-	@pnpm exec prettier --write "src/**/*.{ts,json}"
+	@pnpm exec prettier --write .
+
+#format-check: @ Check formatting without modifying files
+format-check: install
+	@pnpm exec prettier --check .
+
+#lint: @ Run Prettier check, ESLint, and TypeScript noEmit
+lint: install
+	@pnpm exec prettier --check .
+	@pnpm exec eslint --max-warnings 0 src/
+	@pnpm exec tsc --noEmit
 
 #vulncheck: @ Audit dependencies for known vulnerabilities
 vulncheck: install
 	@pnpm audit --audit-level=moderate
+
+#secrets: @ Scan for hardcoded secrets with gitleaks
+secrets: deps-gitleaks
+	@gitleaks detect --source . --verbose --redact --no-banner
+
+#trivy-fs: @ Scan filesystem for vulnerabilities, secrets, and misconfigurations
+trivy-fs: deps-trivy
+	@trivy fs --scanners vuln,secret,misconfig --severity CRITICAL,HIGH .
+
+#deps-prune: @ Show unused/redundant Node.js dependencies
+deps-prune: install
+	@echo "Checking for unused Node.js packages..."
+	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,ts-node,readline-sync,@eslint/js,typescript-eslint" || true
+
+#deps-prune-check: @ Verify no prunable dependencies (CI gate)
+deps-prune-check: install
+	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,ts-node,readline-sync,@eslint/js,typescript-eslint" --quiet \
+		|| { echo "ERROR: unused dependencies found. Run 'make deps-prune' to see them."; exit 1; }
+
+#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check)
+static-check: lint vulncheck secrets trivy-fs deps-prune-check
+	@echo "Static check passed."
 
 #test: @ Run unit tests
 test: install
@@ -109,8 +174,22 @@ test: install
 test-watch: install
 	@pnpm exec vitest
 
-#check: @ Run full local verification (lint, build, test)
-check: lint build test
+#test-integration: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
+test-integration: install
+	@pnpm exec vitest run --config vitest.integration.config.ts
+
+#smoke: @ HTTP smoke test against built server (no Dapr)
+smoke: build
+	@trap 'kill $$SERVER_PID 2>/dev/null || true' EXIT; \
+	node dist/api-server.js & SERVER_PID=$$!; \
+	echo "Waiting for server on port $(PORT)..."; \
+	timeout 10 bash -c 'until curl -sf http://localhost:$(PORT)/ > /dev/null; do sleep 1; done' || { echo "Server failed to start"; exit 1; }; \
+	echo "Server is up, running smoke tests..."; \
+	curl -sf http://localhost:$(PORT)/ | grep -q "Dapr Workflow API" || { echo "Health check failed"; exit 1; }; \
+	echo "Smoke tests passed"
+
+#check: @ Run full local verification (format-check, static-check, test, build)
+check: format-check static-check test build
 
 #update: @ Update dependencies to latest allowed versions
 update: deps
@@ -206,10 +285,6 @@ check-db:
 	if [ -z "$$RESP" ]; then echo "Server not responding on port $(PORT) (is it running with Dapr?)"; \
 	else echo "$$RESP" | python3 -m json.tool 2>/dev/null || echo "$$RESP"; fi
 
-#test-integration: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
-test-integration: install
-	@pnpm exec vitest run --config vitest.integration.config.ts
-
 #check-version: @ Ensure VERSION variable is set and valid semver (vX.Y.Z)
 check-version:
 ifndef VERSION
@@ -231,35 +306,12 @@ tag-release: check-version
 	@git push
 	@echo "Done."
 
-#ci-install: @ Install dependencies with frozen lockfile (CI only, skips system deps)
-ci-install:
-	@pnpm install --frozen-lockfile
-
-#ci-build: @ Build TypeScript in CI (frozen lockfile, no system deps)
-ci-build: ci-install
-	@pnpm build
-
-#ci-lint: @ Run ESLint in CI (frozen lockfile, no system deps)
-ci-lint: ci-install
-	@pnpm exec eslint --max-warnings 0 src/
-
-#ci-test: @ Run unit tests in CI
-ci-test: ci-install
-	@pnpm exec vitest run --reporter=verbose
-
-#ci-smoke: @ Run HTTP smoke test against built server
-ci-smoke: ci-build
-	@node dist/api-server.js & SERVER_PID=$$!; \
-	echo "Waiting for server on port 3000..."; \
-	timeout 10 bash -c 'until curl -sf http://localhost:3000/ > /dev/null; do sleep 1; done' || { echo "Server failed to start"; kill $$SERVER_PID 2>/dev/null; exit 1; }; \
-	echo "Server is up, running smoke tests..."; \
-	curl -sf http://localhost:3000/ | grep -q "Dapr Workflow API" || { echo "Health check failed"; kill $$SERVER_PID; exit 1; }; \
-	echo "Smoke tests passed"; \
-	kill $$SERVER_PID 2>/dev/null
-
-#ci-test-integration: @ Run integration tests in CI
-ci-test-integration: ci-install
-	@pnpm exec vitest run --config vitest.integration.config.ts --reporter=verbose
+# === CI-specific targets ===
+# These are CI-only because they assume infrastructure (PostgreSQL service container,
+# pre-installed Dapr CLI) provided by GitHub Actions setup actions. The general
+# `install`, `build`, `lint`, `test`, `static-check`, `smoke`, `test-integration`
+# targets work in CI directly thanks to PNPM_INSTALL using --frozen-lockfile when
+# CI=true and the deps target skipping podman/dapr checks when CI=true.
 
 #ci-seed-db: @ Seed PostgreSQL with baseline schema and data (CI only)
 ci-seed-db:
@@ -294,30 +346,27 @@ ci-dapr-start:
 		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run.log; exit 1; } && \
 	echo "Dapr sidecar and API server are ready."
 
-#audit: @ Audit dependencies for known vulnerabilities
-audit:
-	@pnpm audit --audit-level=high
-
-#ci: @ Run local CI pipeline (lint, vulncheck, test, build)
-ci: lint vulncheck test build
+#ci: @ Run local CI pipeline (format-check, static-check, test, build)
+ci: format-check static-check test build
 	@echo "Local CI pipeline passed."
 
 #ci-run: @ Run GitHub Actions workflow locally using act
 ci-run: deps-act
-	@act push --job build --job lint --job test --job smoke \
-		--container-architecture linux/amd64 \
+	@docker container prune -f 2>/dev/null || true
+	@act push --container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts
 
 #renovate: @ Run Renovate locally in dry-run mode
 renovate: deps
-	@LOG_LEVEL=debug npx renovate --dry-run=full --platform=local --repository-cache=reset --token=$(GITHUB_TOKEN)
+	@GITHUB_COM_TOKEN="$(GITHUB_TOKEN)" LOG_LEVEL=debug npx renovate --dry-run=full --platform=local --repository-cache=reset
 
 #renovate-validate: @ Validate Renovate configuration
-renovate-validate:
+renovate-validate: deps
 	@npx --yes renovate --platform=local
 
-.PHONY: help deps deps-act clean install build lint format vulncheck test test-watch check \
-	update upgrade up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
-	check-workflow check-db test-integration check-version release tag-release \
-	ci-install ci-build ci-lint ci-test ci-smoke ci-test-integration ci-seed-db \
-	ci-dapr-start audit ci ci-run renovate renovate-validate
+.PHONY: help deps deps-act deps-trivy deps-gitleaks clean install build format format-check \
+	lint vulncheck secrets trivy-fs deps-prune deps-prune-check static-check \
+	test test-watch test-integration smoke check update upgrade \
+	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
+	check-workflow check-db check-version release tag-release \
+	ci-seed-db ci-dapr-start ci ci-run renovate renovate-validate

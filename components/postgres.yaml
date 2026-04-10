@@ -2,7 +2,7 @@
 apiVersion: dapr.io/v1alpha1
 kind: Component
 metadata:
-  name: postgres-db  # This is the default storeName used in the workflow
+  name: postgres-db # This is the default storeName used in the workflow
 spec:
   type: bindings.postgres
   version: v1

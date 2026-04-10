@@ -3,36 +3,36 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ["v*"]
     paths-ignore:
-      - '*.md'
-      - '!CLAUDE.md'
-      - 'docs/**'
-      - 'specs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.claudeignore'
-      - '.claude/**'
-      - 'benchmarks/**'
-      - '**.png'
-      - '**.jpg'
-      - '**.gif'
-      - '**.svg'
+      - "*.md"
+      - "!CLAUDE.md"
+      - "docs/**"
+      - "specs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".claudeignore"
+      - ".claude/**"
+      - "benchmarks/**"
+      - "**.png"
+      - "**.jpg"
+      - "**.gif"
+      - "**.svg"
   pull_request:
     paths-ignore:
-      - '*.md'
-      - '!CLAUDE.md'
-      - 'docs/**'
-      - 'specs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.claudeignore'
-      - '.claude/**'
-      - 'benchmarks/**'
-      - '**.png'
-      - '**.jpg'
-      - '**.gif'
-      - '**.svg'
+      - "*.md"
+      - "!CLAUDE.md"
+      - "docs/**"
+      - "specs/**"
+      - "LICENSE"
+      - ".gitignore"
+      - ".claudeignore"
+      - ".claude/**"
+      - "benchmarks/**"
+      - "**.png"
+      - "**.jpg"
+      - "**.gif"
+      - "**.svg"
   workflow_call:
 
 concurrency:
@@ -43,14 +43,38 @@ permissions:
   contents: read
 
 env:
-  PNPM_VERSION: 10
-  DAPR_CLI_VERSION: 1.17.0
+  # Keep in sync with Makefile PNPM_VERSION and DAPR_CLI_VERSION
+  PNPM_VERSION: 10.33.0
+  DAPR_CLI_VERSION: 1.17.1
 
 jobs:
-  # ── Build ─────────────────────────────────────────────────────────────────────
+  static-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0 # needed for gitleaks history scan
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+          cache-dependency-path: "**/pnpm-lock.yaml"
+
+      - name: Static check
+        run: make static-check
+
   build:
-    name: Build & audit
-    needs: [lint]
+    needs: [static-check]
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -60,111 +84,50 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install pnpm
+      - name: Set up pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - name: Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
           cache-dependency-path: "**/pnpm-lock.yaml"
 
       - name: Build
-        run: make ci-build
-
-      - name: Audit dependencies
-        run: make audit
-        continue-on-error: true
-
-  # ── Lint ──────────────────────────────────────────────────────────────────────
-  lint:
-    name: Lint
-    timeout-minutes: 5
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version-file: ".nvmrc"
-          cache: "pnpm"
-          cache-dependency-path: "**/pnpm-lock.yaml"
-
-      - name: Lint
-        run: make ci-lint
-
-  # ── Unit tests ────────────────────────────────────────────────────────────────
-  test:
-    name: Unit tests
-    needs: lint
-    timeout-minutes: 5
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version-file: ".nvmrc"
-          cache: "pnpm"
-          cache-dependency-path: "**/pnpm-lock.yaml"
-
-      - name: Unit tests
-        run: make ci-test
-
-  # ── Smoke test ────────────────────────────────────────────────────────────────
-  smoke:
-    name: HTTP smoke test
-    needs: [build, test]
-    timeout-minutes: 5
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version-file: ".nvmrc"
-          cache: "pnpm"
-          cache-dependency-path: "**/pnpm-lock.yaml"
+        run: make build
 
       - name: Smoke test
-        run: make ci-smoke
+        run: make smoke
 
-  # ── Integration tests ─────────────────────────────────────────────────────
+  test:
+    needs: [static-check]
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+          cache-dependency-path: "**/pnpm-lock.yaml"
+
+      - name: Test
+        run: make test
+
   integration:
-    name: Integration tests
+    if: ${{ vars.ACT != 'true' }} # service containers and psql aren't available under act
     needs: [build, test]
     timeout-minutes: 10
     runs-on: ubuntu-latest
@@ -189,13 +152,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install pnpm
+      - name: Set up pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
         with:
           version: ${{ env.PNPM_VERSION }}
 
-      - name: Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
@@ -211,21 +173,20 @@ jobs:
 
       - name: Build and start Dapr + server
         run: |
-          make ci-build
+          make build
           make ci-dapr-start
 
-      - name: Integration tests
-        run: make ci-test-integration
+      - name: Test integration
+        run: make test-integration
 
-  # ── Gate ───────────────────────────────────────────────────────────────────
   ci-pass:
-    name: CI ✓
     if: always()
-    needs: [build, lint, test, smoke, integration]
+    needs: [static-check, build, test, integration]
     timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:
-      - run: |
+      - name: Verify all jobs passed
+        run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
             echo "One or more jobs failed"
             exit 1

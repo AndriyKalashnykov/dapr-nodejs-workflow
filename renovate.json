@@ -1,8 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:best-practices"
-  ],
+  "extends": ["config:best-practices", ":semanticCommitType(chore)"],
   "enabledManagers": [
     "npm",
     "github-actions",
@@ -12,9 +10,7 @@
   "commitMessagePrefix": "chore(all): ",
   "commitMessageAction": "update",
   "commitBody": "Signed-off-by: Renovate Bot <bot@renovateapp.com>",
-  "labels": [
-    "dependencies"
-  ],
+  "labels": ["dependencies"],
   "prConcurrentLimit": 50,
   "prHourlyLimit": 0,
   "platformAutomerge": true,
@@ -23,9 +19,7 @@
   "automergeStrategy": "squash",
   "ignoreTests": false,
   "vulnerabilityAlerts": {
-    "labels": [
-      "security"
-    ],
+    "labels": ["security"],
     "automerge": true,
     "minimumReleaseAge": "0 days"
   },
@@ -39,44 +33,33 @@
   "packageRules": [
     {
       "description": "Wait 3 days before automerging major updates",
-      "matchUpdateTypes": [
-        "major"
-      ],
+      "matchUpdateTypes": ["major"],
       "minimumReleaseAge": "3 days"
     },
     {
       "description": "Group GitHub Actions into one PR",
-      "matchManagers": [
-        "github-actions"
-      ],
-      "groupName": "GitHub Actions",
-      "automerge": true
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "Group docker-compose images into one PR",
+      "matchManagers": ["docker-compose"],
+      "groupName": "docker-compose images"
     },
     {
       "description": "Group devDependencies non-major updates",
-      "matchDepTypes": [
-        "devDependencies"
-      ],
-      "matchUpdateTypes": [
-        "minor",
-        "patch"
-      ],
-      "groupName": "dev-dependencies",
-      "automerge": true
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "dev-dependencies"
     },
     {
       "description": "Group type definitions",
-      "matchPackageNames": [
-        "/^@types\\//"
-      ],
-      "groupName": "type-definitions",
-      "automerge": true
+      "matchPackageNames": ["/^@types\\//"],
+      "groupName": "type-definitions"
     },
     {
       "description": "Group Dapr SDK updates",
-      "matchPackageNames": [
-        "@dapr/dapr"
-      ],
+      "matchPackageNames": ["@dapr/dapr"],
       "groupName": "Dapr SDK"
     }
   ],
