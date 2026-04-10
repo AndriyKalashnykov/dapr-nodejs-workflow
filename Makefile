@@ -367,6 +367,58 @@ e2e: image-build
 	echo ""; \
 	echo "e2e tests passed"
 
+#docker-smoke-test: @ Boot-marker smoke test: start smoke-test container, wait for boot. Leaves container running for DAST (CI)
+docker-smoke-test:
+	@set -eu; \
+	docker run -d --name smoke-test -p 3100:3000 $(IMAGE_NAME):scan; \
+	deadline=$$(($$(date +%s) + 30)); \
+	while [ $$(date +%s) -lt $$deadline ]; do \
+		if docker logs smoke-test 2>&1 | grep -qE 'REST API server running|listening on|started on port'; then \
+			echo "PASS: container booted successfully"; \
+			exit 0; \
+		fi; \
+		sleep 2; \
+	done; \
+	echo "FAIL: container did not boot within 30s"; \
+	docker logs smoke-test; \
+	exit 1
+
+#dast-scan: @ Run ZAP baseline scan against an already-running container on localhost:3100 (CI)
+dast-scan:
+	@set -eu; \
+	WORK="$${GITHUB_WORKSPACE:-$$PWD}"; \
+	mkdir -p "$$WORK/zap-output"; \
+	chmod 777 "$$WORK/zap-output"; \
+	docker run --rm --network host \
+		-v "$$WORK/zap-output:/zap/wrk:rw" \
+		ghcr.io/zaproxy/zaproxy:$(ZAP_VERSION) \
+		zap-baseline.py \
+			-t http://localhost:3100 \
+			-I \
+			-r zap-report.html \
+			-J zap-report.json \
+			-w zap-report.md
+
+#docker-verify-manifest: @ Assert a published multi-arch image has linux/amd64 + linux/arm64 and zero unknown/unknown entries (CI)
+docker-verify-manifest:
+	@set -eu; \
+	test -n "$(IMAGE_REF)" || { echo "ERROR: IMAGE_REF is required (e.g., make docker-verify-manifest IMAGE_REF=ghcr.io/owner/repo:1.0.0)"; exit 1; }; \
+	MANIFEST=$$(docker buildx imagetools inspect "$(IMAGE_REF)"); \
+	echo "$$MANIFEST"; \
+	if echo "$$MANIFEST" | grep -q 'unknown/unknown'; then \
+		echo "FAIL: image index contains unknown/unknown entries (attestations leaked?)"; \
+		exit 1; \
+	fi; \
+	if ! echo "$$MANIFEST" | grep -q 'linux/amd64'; then \
+		echo "FAIL: linux/amd64 platform missing"; \
+		exit 1; \
+	fi; \
+	if ! echo "$$MANIFEST" | grep -q 'linux/arm64'; then \
+		echo "FAIL: linux/arm64 platform missing"; \
+		exit 1; \
+	fi; \
+	echo "PASS: multi-arch manifest verified"
+
 #dast: @ ZAP baseline DAST scan against the built image
 dast: image-build
 	@$(DOCKER) rm -f $(IMAGE_NAME)-dast 2>/dev/null || true
@@ -466,5 +518,5 @@ renovate-validate: deps
 	test test-watch test-integration smoke check update upgrade \
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
-	image-build image-run image-stop e2e dast \
+	image-build image-run image-stop e2e dast docker-smoke-test dast-scan docker-verify-manifest \
 	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate

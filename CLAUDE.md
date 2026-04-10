@@ -81,14 +81,19 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Test & Verify
 
-| Target                  | Description                                                      |
-| ----------------------- | ---------------------------------------------------------------- |
-| `make test`             | Run unit tests                                                   |
-| `make test-watch`       | Run unit tests in watch mode                                     |
-| `make test-integration` | Run integration tests (requires running Dapr stack + PostgreSQL) |
-| `make smoke`            | HTTP smoke test against built server (no Dapr)                   |
-| `make check-workflow`   | Trigger a workflow via API and poll its status                   |
-| `make check-db`         | Hit the `/db-health` endpoint                                    |
+| Target                        | Description                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `make test`                   | Run unit tests                                                                                                           |
+| `make test-watch`             | Run unit tests in watch mode                                                                                             |
+| `make test-integration`       | Run integration tests (requires running Dapr stack + PostgreSQL)                                                         |
+| `make smoke`                  | HTTP smoke test against built server (no Dapr)                                                                           |
+| `make e2e`                    | End-to-end test of the production Docker image                                                                           |
+| `make dast`                   | ZAP baseline DAST scan (local: builds image, runs container, scans, cleans up)                                           |
+| `make docker-smoke-test`      | Boot-marker smoke test; starts `smoke-test` container and leaves it running for DAST (CI)                                |
+| `make dast-scan`              | Run ZAP scan against an already-running container on `localhost:3100` (CI)                                               |
+| `make docker-verify-manifest` | Assert a published multi-arch image has `linux/amd64` + `linux/arm64` and no attestations (CI; requires `IMAGE_REF=...`) |
+| `make check-workflow`         | Trigger a workflow via API and poll its status                                                                           |
+| `make check-db`               | Hit the `/db-health` endpoint                                                                                            |
 
 ### CI & Release
 
@@ -184,7 +189,7 @@ The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, an
 - **test**: `make test` (Vitest unit tests)
 - **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling
 - **integration**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make test-integration` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests)
-- **docker** (tag-gated `v*` only): multi-arch build + push to GHCR with pre-push gates (Trivy image scan CRITICAL/HIGH blocking, Node.js boot-marker smoke test, ZAP baseline DAST scan, cosign keyless OIDC signing). Buildkit in-manifest attestations (`provenance`/`sbom`) are explicitly disabled to keep the image index clean of `unknown/unknown` platform entries so GHCR's Packages UI renders the "OS / Arch" tab.
+- **docker** (tag-gated `v*` only): multi-arch build + push to GHCR with pre-push gates (Trivy image scan CRITICAL/HIGH blocking via `make docker-smoke-test`, ZAP baseline DAST scan via `make dast-scan`, post-push manifest verification via `make docker-verify-manifest`, cosign keyless OIDC signing). Buildkit in-manifest attestations (`provenance`/`sbom`) are explicitly disabled to keep the image index clean of `unknown/unknown` platform entries so GHCR's Packages UI renders the "OS / Arch" tab.
 - **ci-pass**: gate job — runs after all upstream jobs and fails if any of them failed; intended as the single status check for branch protection
 
 Job dependencies: `static-check` -> `build` + `test` (parallel) -> `e2e` + `integration` (parallel) -> `docker` (tag-gated) -> `ci-pass`.

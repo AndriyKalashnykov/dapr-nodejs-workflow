@@ -194,14 +194,15 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 
 The `docker` job runs the following gates **before** any image is pushed to GHCR. Any gate failure blocks the release.
 
-| #   | Gate                                          | Catches                                                     | Tool                                          |
-| --- | --------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------- |
-| 1   | Build local single-arch image                 | Build regressions on the runner architecture                | `docker/build-push-action` with `load: true`  |
-| 2   | **Trivy image scan** (CRITICAL/HIGH blocking) | CVEs in the base image, OS packages, build layers           | `aquasecurity/trivy-action` with `image-ref:` |
-| 3   | **Smoke test**                                | Image boots correctly on its own (Node.js boot-marker grep) | `docker run` + log grep                       |
-| 4   | **ZAP baseline DAST scan**                    | Missing security headers, misconfigs, info leaks            | [OWASP ZAP](https://www.zaproxy.org/) (`-I`)  |
-| 5   | Multi-arch build + push                       | Publishes for `linux/amd64` and `linux/arm64`               | `docker/build-push-action`                    |
-| 6   | **Cosign keyless OIDC signing**               | Sigstore signature on the manifest digest                   | `sigstore/cosign-installer` + `cosign sign`   |
+| #   | Gate                                          | Catches                                                                                     | Tool                                                          |
+| --- | --------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 1   | Build local single-arch image                 | Build regressions on the runner architecture                                                | `docker/build-push-action` with `load: true`                  |
+| 2   | **Trivy image scan** (CRITICAL/HIGH blocking) | CVEs in the base image, OS packages, build layers                                           | `aquasecurity/trivy-action` with `image-ref:`                 |
+| 3   | **Smoke test**                                | Image boots correctly on its own (Node.js boot-marker grep)                                 | `make docker-smoke-test`                                      |
+| 4   | **ZAP baseline DAST scan**                    | Missing security headers, misconfigs, info leaks                                            | `make dast-scan` ([OWASP ZAP](https://www.zaproxy.org/) `-I`) |
+| 5   | Multi-arch build + push                       | Publishes for `linux/amd64` and `linux/arm64`                                               | `docker/build-push-action`                                    |
+| 6   | **Multi-arch manifest verification**          | Asserts image index has both platforms and no `unknown/unknown` (catches attestation leaks) | `make docker-verify-manifest`                                 |
+| 7   | **Cosign keyless OIDC signing**               | Sigstore signature on the manifest digest                                                   | `sigstore/cosign-installer` + `cosign sign`                   |
 
 Buildkit in-manifest attestations (`provenance` + `sbom`) are disabled so the image index stays free of `unknown/unknown` platform entries, which lets GHCR's Packages UI render the "OS / Arch" tab for the multi-arch manifest. Cosign keyless signing still provides the Sigstore signature for supply-chain verification.
 

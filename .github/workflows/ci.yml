@@ -254,20 +254,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Smoke test
-        run: |
-          set -euo pipefail
-          docker run -d --name smoke-test -p 3100:3000 dapr-nodejs-workflow:scan
-          end=$((SECONDS + 30))
-          while [ $SECONDS -lt $end ]; do
-            if docker logs smoke-test 2>&1 | grep -qE 'REST API server running|listening on|started on port'; then
-              echo "PASS: container booted successfully"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "FAIL: container did not boot within 30s"
-          docker logs smoke-test
-          exit 1
+        run: make docker-smoke-test
 
       - name: Cache ZAP image
         id: cache-zap
@@ -276,7 +263,7 @@ jobs:
           path: /tmp/zap-image.tar
           key: zap-image-2.17.0-${{ runner.os }}
 
-      - name: Load or pull ZAP image
+      - name: Prepare ZAP image
         run: |
           set -euo pipefail
           if [ -f /tmp/zap-image.tar ]; then
@@ -289,21 +276,9 @@ jobs:
           fi
 
       - name: DAST baseline scan
-        run: |
-          set -euo pipefail
-          mkdir -p "${GITHUB_WORKSPACE}/zap-output"
-          chmod 777 "${GITHUB_WORKSPACE}/zap-output"
-          docker run --rm --network host \
-            -v "${GITHUB_WORKSPACE}/zap-output:/zap/wrk:rw" \
-            ghcr.io/zaproxy/zaproxy:2.17.0 \
-            zap-baseline.py \
-              -t http://localhost:3100 \
-              -I \
-              -r zap-report.html \
-              -J zap-report.json \
-              -w zap-report.md
+        run: make dast-scan
 
-      - name: Tear down test container
+      - name: Remove test container
         if: always()
         run: docker rm -f smoke-test 2>/dev/null || true
 
@@ -337,6 +312,11 @@ jobs:
           sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify multi-arch manifest
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository }}@${{ steps.push.outputs.digest }}
+        run: make docker-verify-manifest IMAGE_REF="$IMAGE_REF"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
