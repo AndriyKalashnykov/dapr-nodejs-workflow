@@ -307,7 +307,7 @@ jobs:
 
       - name: Upload DAST report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6db9b8cdf149f2ab3ef916116fd95 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: zap-baseline-report
           path: zap-output/
