@@ -17,7 +17,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
 # ============================================================================
-# Stage 2: Compile TypeScript and prune to production deps
+# Stage 2: Compile TypeScript
 # ============================================================================
 FROM deps AS builder
 
@@ -26,11 +26,17 @@ COPY src ./src
 
 RUN pnpm run build
 
-# Re-install production-only deps into a clean directory for the runtime stage.
-# This drops devDependencies (typescript, eslint, vitest, etc.) from the image.
+# ============================================================================
+# Stage 2b: Production-only dependencies (clean node_modules, no devDeps)
+# ============================================================================
+FROM deps AS prod-deps
+
+# Delete the full node_modules from the deps stage and reinstall with --prod.
+# This ensures devDependencies (typescript, eslint, vitest, vite, etc.) are
+# completely removed — pnpm --prod on an existing install may leave artifacts.
+RUN rm -rf node_modules
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile --prod --ignore-scripts && \
-    pnpm store prune
+    pnpm install --frozen-lockfile --prod --ignore-scripts
 
 # ============================================================================
 # Stage 3: Distroless runtime — no shell, no package manager, non-root
@@ -46,9 +52,9 @@ LABEL org.opencontainers.image.title="dapr-nodejs-workflow" \
 
 WORKDIR /app
 
-# Copy production node_modules and compiled output only.
+# Copy production node_modules (from prod-deps, no devDeps) and compiled output.
 # chown to nonroot (uid 65532) — distroless default user.
-COPY --from=builder --chown=65532:65532 /app/node_modules ./node_modules
+COPY --from=prod-deps --chown=65532:65532 /app/node_modules ./node_modules
 COPY --from=builder --chown=65532:65532 /app/dist ./dist
 COPY --from=builder --chown=65532:65532 /app/package.json ./
 

@@ -1,0 +1,4 @@
+# OpenSSL DoS via NULL pointer dereference in distroless base image.
+# Fixed in 3.0.19-1~deb12u2 but gcr.io/distroless/nodejs24-debian12:nonroot
+# hasn't been rebuilt with the fix yet. Remove when distroless base updates.
+CVE-2026-28390
