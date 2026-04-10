@@ -184,7 +184,7 @@ The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, an
 - **test**: `make test` (Vitest unit tests)
 - **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling
 - **integration**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make test-integration` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests)
-- **docker** (tag-gated `v*` only): multi-arch build + push to GHCR with pre-push gates (Trivy image scan CRITICAL/HIGH blocking, Node.js boot-marker smoke test, ZAP baseline DAST scan, `provenance: mode=max`, `sbom: true`, cosign keyless OIDC signing)
+- **docker** (tag-gated `v*` only): multi-arch build + push to GHCR with pre-push gates (Trivy image scan CRITICAL/HIGH blocking, Node.js boot-marker smoke test, ZAP baseline DAST scan, cosign keyless OIDC signing). Buildkit in-manifest attestations (`provenance`/`sbom`) are explicitly disabled to keep the image index clean of `unknown/unknown` platform entries so GHCR's Packages UI renders the "OS / Arch" tab.
 - **ci-pass**: gate job — runs after all upstream jobs and fails if any of them failed; intended as the single status check for branch protection
 
 Job dependencies: `static-check` -> `build` + `test` (parallel) -> `e2e` + `integration` (parallel) -> `docker` (tag-gated) -> `ci-pass`.

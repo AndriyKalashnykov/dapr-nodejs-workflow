@@ -44,12 +44,6 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 # renovate: datasource=docker depName=gcr.io/distroless/nodejs24-debian12
 FROM gcr.io/distroless/nodejs24-debian12:nonroot@sha256:14d42e2511532589a7c7e01a753667a74fcc96266e137e8125006b87b0c32d0a AS runtime
 
-LABEL org.opencontainers.image.title="dapr-nodejs-workflow" \
-      org.opencontainers.image.description="Dapr Workflow demo — Express HTTP API with durable workflows" \
-      org.opencontainers.image.source="https://github.com/AndriyKalashnykov/dapr-nodejs-workflow" \
-      org.opencontainers.image.licenses="MIT" \
-      org.opencontainers.image.authors="Andriy Kalashnykov"
-
 WORKDIR /app
 
 # Copy production node_modules (from prod-deps, no devDeps) and compiled output.

@@ -230,6 +230,8 @@ jobs:
             type=semver,pattern={{major}}
           flavor: |
             latest=true
+          labels: |
+            org.opencontainers.image.authors=Andriy Kalashnykov
 
       - name: Build image for scan
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -331,8 +333,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: mode=max
-          sbom: true
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
