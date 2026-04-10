@@ -25,6 +25,9 @@ TRIVY_VERSION    := 0.69.3
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
 GITLEAKS_VERSION := 8.30.1
 
+# renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
+ZAP_VERSION      := 2.17.0
+
 # Container CLI: prefer docker, fall back to podman (local dev uses podman).
 DOCKER ?= $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null || echo docker)
 IMAGE_NAME := $(APP_NAME)
@@ -122,7 +125,7 @@ deps-gitleaks:
 
 #clean: @ Remove build artifacts and node_modules
 clean:
-	@rm -rf node_modules/ dist/
+	@rm -rf node_modules/ dist/ zap-output/
 
 #install: @ Install npm dependencies (uses --frozen-lockfile when CI=true)
 install: deps
@@ -364,6 +367,42 @@ e2e: image-build
 	echo ""; \
 	echo "e2e tests passed"
 
+#dast: @ ZAP baseline DAST scan against the built image
+dast: image-build
+	@$(DOCKER) rm -f $(IMAGE_NAME)-dast 2>/dev/null || true
+	@$(DOCKER) run -d --name $(IMAGE_NAME)-dast -p 3100:3000 $(IMAGE) >/dev/null
+	@echo "Waiting for container to become healthy..."
+	@for i in $$(seq 1 30); do \
+		curl -sf http://localhost:3100/ >/dev/null 2>&1 && break; \
+		sleep 1; \
+		[ "$$i" -eq 30 ] && { echo "Container failed to start"; $(DOCKER) logs $(IMAGE_NAME)-dast; $(DOCKER) rm -f $(IMAGE_NAME)-dast; exit 1; }; \
+	done
+	@mkdir -p zap-output && chmod 777 zap-output
+	@$(DOCKER) run --rm --network host \
+		-v "$$(pwd)/zap-output:/zap/wrk:rw" \
+		ghcr.io/zaproxy/zaproxy:$(ZAP_VERSION) \
+		zap-baseline.py \
+			-t http://localhost:3100 \
+			-I \
+			-r zap-report.html \
+			-J zap-report.json \
+			-w zap-report.md \
+		; EXIT=$$?; \
+		$(DOCKER) rm -f $(IMAGE_NAME)-dast >/dev/null 2>&1 || true; \
+		if [ "$$EXIT" -ne 0 ]; then exit $$EXIT; fi
+	@echo "DAST report: $$(pwd)/zap-output/zap-report.html"
+
+#ci-run-tag: @ Run GitHub Actions workflow locally with a tag event (exercises docker job)
+ci-run-tag: deps-act
+	@docker container prune -f 2>/dev/null || true
+	@TAG="$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"; \
+		echo '{"ref":"refs/tags/'"$$TAG"'"}' > /tmp/act-tag-event.json
+	@act push \
+		--eventpath /tmp/act-tag-event.json \
+		--container-architecture linux/amd64 \
+		--artifact-server-path /tmp/act-artifacts || true
+	@echo "Note: cosign signing will fail under act (no OIDC) — expected."
+
 # === CI-specific targets ===
 # These are CI-only because they assume infrastructure (PostgreSQL service container,
 # pre-installed Dapr CLI) provided by GitHub Actions setup actions. The general
@@ -427,5 +466,5 @@ renovate-validate: deps
 	test test-watch test-integration smoke check update upgrade \
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
-	image-build image-run image-stop e2e \
-	ci-seed-db ci-dapr-start ci ci-run renovate renovate-validate
+	image-build image-run image-stop e2e dast \
+	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate

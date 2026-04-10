@@ -254,20 +254,65 @@ jobs:
       - name: Smoke test
         run: |
           set -euo pipefail
-          docker run -d --name smoke-test dapr-nodejs-workflow:scan
+          docker run -d --name smoke-test -p 3100:3000 dapr-nodejs-workflow:scan
           end=$((SECONDS + 30))
           while [ $SECONDS -lt $end ]; do
             if docker logs smoke-test 2>&1 | grep -qE 'REST API server running|listening on|started on port'; then
               echo "PASS: container booted successfully"
-              docker rm -f smoke-test >/dev/null
               exit 0
             fi
             sleep 2
           done
           echo "FAIL: container did not boot within 30s"
           docker logs smoke-test
-          docker rm -f smoke-test >/dev/null || true
           exit 1
+
+      - name: Cache ZAP image
+        id: cache-zap
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: /tmp/zap-image.tar
+          key: zap-image-2.17.0-${{ runner.os }}
+
+      - name: Load or pull ZAP image
+        run: |
+          set -euo pipefail
+          if [ -f /tmp/zap-image.tar ]; then
+            echo "Loading ZAP from cache..."
+            docker load -i /tmp/zap-image.tar
+          else
+            echo "Pulling ghcr.io/zaproxy/zaproxy:2.17.0..."
+            docker pull ghcr.io/zaproxy/zaproxy:2.17.0
+            docker save ghcr.io/zaproxy/zaproxy:2.17.0 -o /tmp/zap-image.tar
+          fi
+
+      - name: DAST baseline scan
+        run: |
+          set -euo pipefail
+          mkdir -p "${GITHUB_WORKSPACE}/zap-output"
+          chmod 777 "${GITHUB_WORKSPACE}/zap-output"
+          docker run --rm --network host \
+            -v "${GITHUB_WORKSPACE}/zap-output:/zap/wrk:rw" \
+            ghcr.io/zaproxy/zaproxy:2.17.0 \
+            zap-baseline.py \
+              -t http://localhost:3100 \
+              -I \
+              -r zap-report.html \
+              -J zap-report.json \
+              -w zap-report.md
+
+      - name: Tear down test container
+        if: always()
+        run: docker rm -f smoke-test 2>/dev/null || true
+
+      - name: Upload DAST report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6db9b8cdf149f2ab3ef916116fd95 # v4
+        with:
+          name: zap-baseline-report
+          path: zap-output/
+          retention-days: 30
+          if-no-files-found: ignore
 
       - name: Log in to GHCR
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3

@@ -199,10 +199,11 @@ The `docker` job runs the following gates **before** any image is pushed to GHCR
 | 1   | Build local single-arch image                    | Build regressions on the runner architecture                | `docker/build-push-action` with `load: true`  |
 | 2   | **Trivy image scan** (CRITICAL/HIGH blocking)    | CVEs in the base image, OS packages, build layers           | `aquasecurity/trivy-action` with `image-ref:` |
 | 3   | **Smoke test**                                   | Image boots correctly on its own (Node.js boot-marker grep) | `docker run` + log grep                       |
-| 4   | Multi-arch build + push                          | Publishes for `linux/amd64` and `linux/arm64`               | `docker/build-push-action`                    |
-| 5   | **SLSA L2 build provenance** (`provenance: max`) | Cryptographic record of how the image was built             | `docker/build-push-action` native attestation |
-| 6   | **SBOM attestation** (`sbom: true`)              | Software Bill of Materials in the manifest                  | `docker/build-push-action` native attestation |
-| 7   | **Cosign keyless OIDC signing**                  | Sigstore signature on the manifest digest                   | `sigstore/cosign-installer` + `cosign sign`   |
+| 4   | **ZAP baseline DAST scan**                       | Missing security headers, misconfigs, info leaks            | [OWASP ZAP](https://www.zaproxy.org/) (`-I`)  |
+| 5   | Multi-arch build + push                          | Publishes for `linux/amd64` and `linux/arm64`               | `docker/build-push-action`                    |
+| 6   | **SLSA L2 build provenance** (`provenance: max`) | Cryptographic record of how the image was built             | `docker/build-push-action` native attestation |
+| 7   | **SBOM attestation** (`sbom: true`)              | Software Bill of Materials in the manifest                  | `docker/build-push-action` native attestation |
+| 8   | **Cosign keyless OIDC signing**                  | Sigstore signature on the manifest digest                   | `sigstore/cosign-installer` + `cosign sign`   |
 
 Verify a published image's signature:
 

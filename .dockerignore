@@ -44,6 +44,9 @@ src/__tests__/
 .env*
 *.local
 
+# DAST reports
+zap-output/
+
 # OS artifacts
 .DS_Store
 Thumbs.db
