@@ -192,29 +192,35 @@ docker-compose.yaml          PostgreSQL + Redis for local development
 
 GitHub Actions runs on every push to `main`, version tags (`v*`), and pull requests. The workflow is reusable via `workflow_call`.
 
-| Job              | Depends on                     | Steps                                                                                                                                               |
-| ---------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **static-check** | —                              | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck)                             |
-| **build**        | static-check                   | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                              |
-| **test**         | static-check                   | `make test` (Vitest unit tests)                                                                                                                     |
-| **e2e**          | build, test                    | `make e2e` (build Docker image, start container, validate HTTP endpoints)                                                                           |
-| **integration**  | build, test                    | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make test-integration` (PostgreSQL service container + Dapr CLI 1.17.1)                     |
-| **docker**       | static-check, build, test, e2e | Runs every push; gates 1–4 (build + Trivy + smoke + multi-arch build) always run, registry push + cosign signing are tag-gated (`v*`) at step level |
-| **ci-pass**      | all of the above               | Gate job: fails if any upstream job failed                                                                                                          |
+| Job              | Depends on                | Steps                                                                                                                                                                             |
+| ---------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **static-check** | —                         | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck)                                                           |
+| **build**        | static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                            |
+| **test**         | static-check              | `make test` (Vitest unit tests)                                                                                                                                                   |
+| **e2e**          | build, test               | `make e2e` (build Docker image, start container, validate HTTP endpoints)                                                                                                         |
+| **integration**  | build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make test-integration` (PostgreSQL service container + Dapr CLI 1.17.1). Skipped under act.                               |
+| **dast**         | build, test               | Build image via `cache-from: type=gha`, `make docker-smoke-test`, cached ZAP image, `make dast-scan`, upload report artifact. Skipped under act.                                  |
+| **docker**       | static-check, build, test | Runs every push in parallel with `e2e`/`dast`; gates 1–4 (build + Trivy + smoke + multi-arch build) always run, registry push + cosign signing are tag-gated (`v*`) at step level |
+| **ci-pass**      | all of the above          | Gate job: fails if any upstream job failed                                                                                                                                        |
 
 ### Pre-push image hardening
 
 The `docker` job runs the following gates **before** any image is pushed to GHCR. Any gate failure blocks the release.
 
-| #   | Gate                                          | Catches                                                                                     | Tool                                                          |
-| --- | --------------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| 1   | Build local single-arch image                 | Build regressions on the runner architecture                                                | `docker/build-push-action` with `load: true`                  |
-| 2   | **Trivy image scan** (CRITICAL/HIGH blocking) | CVEs in the base image, OS packages, build layers                                           | `aquasecurity/trivy-action` with `image-ref:`                 |
-| 3   | **Smoke test**                                | Image boots correctly on its own (Node.js boot-marker grep)                                 | `make docker-smoke-test`                                      |
-| 4   | **ZAP baseline DAST scan**                    | Missing security headers, misconfigs, info leaks                                            | `make dast-scan` ([OWASP ZAP](https://www.zaproxy.org/) `-I`) |
-| 5   | Multi-arch build + push                       | Publishes for `linux/amd64` and `linux/arm64`                                               | `docker/build-push-action`                                    |
-| 6   | **Multi-arch manifest verification**          | Asserts image index has both platforms and no `unknown/unknown` (catches attestation leaks) | `make docker-verify-manifest`                                 |
-| 7   | **Cosign keyless OIDC signing**               | Sigstore signature on the manifest digest                                                   | `sigstore/cosign-installer` + `cosign sign`                   |
+| #   | Gate                                          | Catches                                                                                     | Tool                                          |
+| --- | --------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| 1   | Build local single-arch image                 | Build regressions on the runner architecture                                                | `docker/build-push-action` with `load: true`  |
+| 2   | **Trivy image scan** (CRITICAL/HIGH blocking) | CVEs in the base image, OS packages, build layers                                           | `aquasecurity/trivy-action` with `image-ref:` |
+| 3   | **Smoke test**                                | Image boots correctly on its own (Node.js boot-marker grep)                                 | `make docker-smoke-test`                      |
+| 4   | Multi-arch build + push                       | Publishes for `linux/amd64` and `linux/arm64`                                               | `docker/build-push-action`                    |
+| 5   | **Multi-arch manifest verification**          | Asserts image index has both platforms and no `unknown/unknown` (catches attestation leaks) | `make docker-verify-manifest`                 |
+| 6   | **Cosign keyless OIDC signing**               | Sigstore signature on the manifest digest                                                   | `sigstore/cosign-installer` + `cosign sign`   |
+
+The `dast` job runs in parallel with the `docker` job and performs an additional security scan:
+
+| Gate                        | Catches                                          | Tool                                                                                                   |
+| --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| **OWASP ZAP baseline scan** | Missing security headers, misconfigs, info leaks | `make dast-scan` ([OWASP ZAP](https://www.zaproxy.org/) `-I` = warn only, report uploaded as artifact) |
 
 Buildkit in-manifest attestations (`provenance` + `sbom`) are disabled so the image index stays free of `unknown/unknown` platform entries, which lets GHCR's Packages UI render the "OS / Arch" tab for the multi-arch manifest. Cosign keyless signing still provides the Sigstore signature for supply-chain verification.
 
