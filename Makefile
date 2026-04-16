@@ -1,5 +1,9 @@
 .DEFAULT_GOAL := help
 
+# Recipes use `set -euo pipefail` (pipefail is a bash builtin; dash, the default
+# /bin/sh on Ubuntu, rejects it). Required by the mermaid-lint target.
+SHELL := /bin/bash
+
 # Ensure tools installed to $HOME/.local/bin (act, trivy, gitleaks) are on PATH
 # for every recipe — needed inside the act runner container where this path is
 # not preconfigured. Exported so every sub-shell the recipes spawn inherits it.
@@ -27,6 +31,8 @@ TRIVY_VERSION    := 0.69.3
 GITLEAKS_VERSION := 8.30.1
 # renovate: datasource=github-releases depName=hadolint/hadolint
 HADOLINT_VERSION := 2.14.0
+# renovate: datasource=docker depName=minlag/mermaid-cli
+MERMAID_CLI_VERSION := 11.12.0
 
 # renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
 ZAP_VERSION      := 2.17.0
@@ -173,6 +179,35 @@ deps-prune-check: install
 	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" --quiet \
 		|| { echo "ERROR: unused dependencies found. Run 'make deps-prune' to see them."; exit 1; }
 
+#mermaid-lint: @ Validate Mermaid diagrams in README.md and CLAUDE.md via pinned mermaid-cli
+mermaid-lint:
+	@command -v docker >/dev/null 2>&1 || { echo "ERROR: docker is required for mermaid-lint"; exit 1; }
+	@set -euo pipefail; \
+	MD_FILES=$$(grep -lF '```mermaid' README.md CLAUDE.md 2>/dev/null || true); \
+	if [ -z "$$MD_FILES" ]; then \
+		echo "No Mermaid blocks found — skipping."; \
+		exit 0; \
+	fi; \
+	FAILED=0; \
+	for md in $$MD_FILES; do \
+		echo "Validating Mermaid blocks in $$md..."; \
+		LOG=$$(mktemp); \
+		if docker run --rm -v "$$PWD:/data" \
+			minlag/mermaid-cli:$(MERMAID_CLI_VERSION) \
+			-i "/data/$$md" -o "/tmp/$$(basename $$md .md).svg" >"$$LOG" 2>&1; then \
+			echo "  ✓ All blocks rendered cleanly."; \
+		else \
+			echo "  ✗ Parse error in $$md:"; \
+			sed 's/^/    /' "$$LOG"; \
+			FAILED=$$((FAILED + 1)); \
+		fi; \
+		rm -f "$$LOG"; \
+	done; \
+	if [ "$$FAILED" -gt 0 ]; then \
+		echo "Mermaid lint: $$FAILED file(s) had parse errors."; \
+		exit 1; \
+	fi
+
 #components-check: @ Fail if local and CI Dapr component YAMLs drift in structure (password/comments allowed)
 components-check:
 	@set -eu; fail=0; tmp_local=$$(mktemp); tmp_ci=$$(mktemp); \
@@ -191,8 +226,8 @@ components-check:
 	if [ "$$fail" -eq 0 ]; then echo "components-check passed."; fi; \
 	exit $$fail
 
-#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check)
-static-check: lint vulncheck secrets trivy-fs deps-prune-check components-check
+#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + mermaid-lint)
+static-check: lint vulncheck secrets trivy-fs deps-prune-check components-check mermaid-lint
 	@echo "Static check passed."
 
 #test: @ Run unit tests
@@ -556,5 +591,5 @@ renovate-validate: deps
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
 	image-build image-run image-stop e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
-	components-check \
+	components-check mermaid-lint \
 	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate

@@ -22,6 +22,18 @@ A Dapr Workflow demo using the [Dapr JS SDK](https://github.com/dapr/js-sdk) wit
 | Security        | gitleaks, Trivy filesystem scan, `pnpm audit`            |
 | CI/CD           | GitHub Actions, Renovate, act (local CI)                 |
 
+```mermaid
+C4Context
+  title System Context — Dapr Node.js Workflow
+
+  Person(user, "API Consumer", "HTTP client calling REST endpoints")
+  System(sys, "Dapr Node.js Workflow", "Durable workflow service: schedules workflows that query Postgres via Dapr binding, with Redis-backed state for crash-safe replay")
+
+  Rel(user, sys, "Schedules and polls workflows", "HTTPS / JSON")
+
+  UpdateLayoutConfig($c4ShapeInRow="2")
+```
+
 ## Quick Start
 
 ```bash
@@ -72,19 +84,20 @@ Run `make help` to see all targets in one list.
 
 ### Build & Quality
 
-| Target                  | Description                                                                                          |
-| ----------------------- | ---------------------------------------------------------------------------------------------------- |
-| `make build`            | Build TypeScript to `dist/`                                                                          |
-| `make format`           | Auto-fix formatting with Prettier                                                                    |
-| `make format-check`     | Check formatting without modifying files                                                             |
-| `make lint`             | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                                          |
-| `make vulncheck`        | Audit dependencies for known vulnerabilities                                                         |
-| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                             |
-| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                  |
-| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                           |
-| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                            |
-| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments        |
-| `make static-check`     | Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check) |
+| Target                  | Description                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `make build`            | Build TypeScript to `dist/`                                                                                         |
+| `make format`           | Auto-fix formatting with Prettier                                                                                   |
+| `make format-check`     | Check formatting without modifying files                                                                            |
+| `make lint`             | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                                                         |
+| `make vulncheck`        | Audit dependencies for known vulnerabilities                                                                        |
+| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                            |
+| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                 |
+| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                          |
+| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                           |
+| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                       |
+| `make mermaid-lint`     | Validate Mermaid diagrams in `README.md` + `CLAUDE.md` via pinned `minlag/mermaid-cli`                              |
+| `make static-check`     | Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + mermaid-lint) |
 
 ### Test
 
@@ -151,20 +164,71 @@ Run `make help` to see all targets in one list.
 
 ## Architecture
 
+### Container View
+
+```mermaid
+C4Container
+  title Container View — Dapr Node.js Workflow
+
+  Person(user, "API Consumer")
+
+  System_Boundary(sys, "Dapr Node.js Workflow") {
+    Container(api, "Express API", "Node.js 24, TypeScript 6, Express 5", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
+    Container(sidecar, "Dapr Sidecar", "daprd 1.17.5", "Workflow engine, component bindings, state store client")
+    ContainerDb(redis, "Redis", "Redis 8", "Dapr state store — durable workflow state for replay on restart")
+    ContainerDb(postgres, "PostgreSQL", "PostgreSQL 18", "Queried by fetchPostgresDataActivity via Dapr binding")
+  }
+
+  Rel(user, api, "Schedule / poll workflow", "HTTPS / JSON")
+  Rel(api, sidecar, "Workflow client + runtime", "gRPC :50001")
+  Rel(api, sidecar, "Binding invocation (from activities)", "HTTP :3500")
+  Rel(sidecar, redis, "Persist workflow state", "TCP :6379")
+  Rel(sidecar, postgres, "bindings.postgres", "TCP :5432")
 ```
-HTTP client -> Express API (:3000)
-                  |
-          DaprWorkflowClient (gRPC :50001)
-                  |
-          Dapr sidecar (:3500 HTTP / :50001 gRPC)
-                  |
-          WorkflowRuntime -> dataRequestWorkflow
-                  |
-          Activities:
-            1. delayActivity            -- async wait (30s)
-            2. modifyPayloadActivity    -- enrich payload
-            3. fetchPostgresDataActivity -- Dapr binding -> PostgreSQL
+
+- **Express API** + **WorkflowRuntime** run in the same Node process. The API handlers are thin — they schedule workflows via `DaprWorkflowClient` over gRPC, and the sidecar's scheduler streams activity work items back to the runtime over the same gRPC connection.
+- **Dapr Sidecar** (`daprd`, pinned to 1.17.5 via `DAPR_RUNTIME_VERSION`) is the orchestrator. All state persistence, activity dispatch, and component I/O go through it.
+- **Redis** stores durable workflow state. Killing the app container mid-run and restarting it replays the workflow from Redis-persisted state — verified end-to-end by `make e2e-durability`.
+- **PostgreSQL** is _not_ used directly by the app. The `fetchPostgresDataActivity` POSTs a SQL query to the sidecar's binding HTTP API; the sidecar resolves it via the `bindings.postgres` component and returns rows.
+
+### Workflow Sequence — `POST /process-payload` through `GET /workflow/:id/status`
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as API Consumer
+  participant A as Express API<br/>(+ WorkflowRuntime)
+  participant D as Dapr Sidecar
+  participant P as PostgreSQL
+
+  U->>+A: POST /process-payload
+  A->>+D: scheduleNewWorkflow (gRPC)
+  D-->>-A: workflow id
+  A-->>-U: 202 { id }
+
+  rect rgb(245,245,245)
+    Note over D,A: Async activity dispatch via gRPC streaming
+    D->>A: delayActivity(ms)
+    A-->>D: ok
+    D->>A: modifyPayloadActivity(payload)
+    A-->>D: enriched payload
+    D->>A: fetchPostgresDataActivity
+    A->>D: POST /v1.0/bindings/postgres-db
+    D->>+P: SELECT * FROM users
+    P-->>-D: rows
+    D-->>A: rows
+    A-->>D: dbData
+  end
+
+  Note over D: Workflow state persisted to Redis after each activity
+
+  U->>+A: GET /workflow/:id/status
+  A->>+D: getWorkflowState (gRPC)
+  D-->>-A: runtime status + output
+  A-->>-U: 200 { status, output }
 ```
+
+The `delayActivity` step defaults to 30 s (simulating a long-running request); tests and `e2e-dapr` override it to 0 via the request body. While a workflow is mid-flight, `GET /workflow/:id/status` returns `RUNNING`; once all activities complete, the same endpoint returns `COMPLETED` with the enriched JSON payload.
 
 ### Service Ports
 

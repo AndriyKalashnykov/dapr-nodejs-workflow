@@ -48,20 +48,21 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Build & Quality
 
-| Target                  | Description                                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make build`            | Compile TypeScript to `dist/`                                                                                                               |
-| `make format`           | Auto-fix formatting with Prettier                                                                                                           |
-| `make format-check`     | Check formatting without modifying files                                                                                                    |
-| `make lint`             | Run Prettier check, ESLint (zero warnings), `tsc --noEmit`, and hadolint on the Dockerfile                                                  |
-| `make vulncheck`        | Audit dependencies for known vulnerabilities (`pnpm audit --audit-level=moderate`)                                                          |
-| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                                                    |
-| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                         |
-| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                                                  |
-| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                                                   |
-| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                               |
-| `make static-check`     | Composite quality gate: `lint` + `vulncheck` + `secrets` + `trivy-fs` + `deps-prune-check` + `components-check`. CI calls this single step. |
-| `make check`            | Full local verification: `static-check` + `test` + `build` (static-check runs lint which runs prettier --check)                             |
+| Target                  | Description                                                                                                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `make build`            | Compile TypeScript to `dist/`                                                                                                                                |
+| `make format`           | Auto-fix formatting with Prettier                                                                                                                            |
+| `make format-check`     | Check formatting without modifying files                                                                                                                     |
+| `make lint`             | Run Prettier check, ESLint (zero warnings), `tsc --noEmit`, and hadolint on the Dockerfile                                                                   |
+| `make vulncheck`        | Audit dependencies for known vulnerabilities (`pnpm audit --audit-level=moderate`)                                                                           |
+| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                                                                     |
+| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                                          |
+| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                                                                   |
+| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                                                                    |
+| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                                                |
+| `make mermaid-lint`     | Validate Mermaid diagrams in `README.md` and `CLAUDE.md` via pinned `minlag/mermaid-cli` — same engine GitHub renders with                                   |
+| `make static-check`     | Composite quality gate: `lint` + `vulncheck` + `secrets` + `trivy-fs` + `deps-prune-check` + `components-check` + `mermaid-lint`. CI calls this single step. |
+| `make check`            | Full local verification: `static-check` + `test` + `build` (static-check runs lint which runs prettier --check)                                              |
 
 ### Infrastructure
 
@@ -152,20 +153,34 @@ Dockerfile                   Multi-stage production image (distroless, non-root)
 
 ### Request Flow
 
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as API Consumer
+  participant A as Express API<br/>(+ WorkflowRuntime)
+  participant D as Dapr Sidecar
+  participant P as PostgreSQL
+
+  U->>A: POST /process-payload
+  A->>D: scheduleNewWorkflow (gRPC :50001)
+  D-->>A: workflow id
+  A-->>U: 202 { id }
+  Note over D,A: Activity dispatch via gRPC streaming
+  D->>A: delayActivity (30s default, 0 in tests)
+  D->>A: modifyPayloadActivity (enrich payload)
+  D->>A: fetchPostgresDataActivity
+  A->>D: POST /v1.0/bindings/postgres-db (HTTP :3500)
+  D->>P: SELECT * FROM users
+  P-->>D: rows
+  D-->>A: rows -> dbData
+  Note over D: State persisted to Redis after each activity
+  U->>A: GET /workflow/:id/status
+  A->>D: getWorkflowState (gRPC)
+  D-->>A: COMPLETED + output
+  A-->>U: 200 { status, output }
 ```
-HTTP client -> Express API (:3000)
-                  |
-          DaprWorkflowClient (gRPC :50001)
-                  |
-          Dapr sidecar (:3500 HTTP / :50001 gRPC)
-                  |
-          WorkflowRuntime executes dataRequestWorkflow
-                  |
-          Activities (in sequence):
-            1. delayActivity            -- async wait (30s default)
-            2. modifyPayloadActivity    -- enriches the input payload
-            3. fetchPostgresDataActivity -- Dapr binding HTTP API -> PostgreSQL
-```
+
+Architecture diagrams (System Context, Container view, Workflow Sequence) live in `README.md` under `## Architecture` — GitHub renders Mermaid blocks inline, so there is no separate image asset to maintain.
 
 ### Dapr Sidecar Pattern
 
