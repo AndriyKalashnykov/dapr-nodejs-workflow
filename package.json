@@ -35,7 +35,8 @@
   },
   "pnpm": {
     "overrides": {
-      "path-to-regexp": ">=8.4.0"
+      "path-to-regexp": ">=8.4.0",
+      "follow-redirects": ">=1.16.0"
     },
     "onlyBuiltDependencies": [
       "protobufjs"
