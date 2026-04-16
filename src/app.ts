@@ -1,7 +1,12 @@
 import net from "net";
 import express, { Request, Response } from "express";
 import cors from "cors";
-import { DaprWorkflowClient, WorkflowRuntime, WorkflowState } from "@dapr/dapr";
+import {
+  DaprWorkflowClient,
+  WorkflowRuntime,
+  WorkflowState,
+  WorkflowRuntimeStatus,
+} from "@dapr/dapr";
 import {
   dataRequestWorkflow,
   modifyPayloadActivity,
@@ -214,9 +219,15 @@ app.get(
         return;
       }
 
+      // state.runtimeStatus is a numeric enum; expose the human-readable name
+      // so API consumers don't have to know the mapping (RUNNING=0, COMPLETED=1, …).
+      const statusName =
+        WorkflowRuntimeStatus[state.runtimeStatus] ??
+        String(state.runtimeStatus);
+
       res.json({
         id: id,
-        status: state.runtimeStatus.toString(),
+        status: statusName,
         output: state.serializedOutput,
         createdAt: state.createdAt,
         lastUpdatedAt: state.lastUpdatedAt,
