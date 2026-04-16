@@ -20,6 +20,8 @@ PNPM_VERSION     := 10.33.0
 ACT_VERSION      := 0.2.87
 # renovate: datasource=github-releases depName=dapr/cli
 DAPR_CLI_VERSION := 1.17.1
+# renovate: datasource=github-releases depName=dapr/dapr
+DAPR_RUNTIME_VERSION := 1.17.5
 # renovate: datasource=github-releases depName=aquasecurity/trivy
 TRIVY_VERSION    := 0.69.3
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
@@ -259,7 +261,7 @@ dapr-init: deps
 		echo "Stopping container on port 6379 to free it for dapr init..."; \
 		podman stop $$(podman ps -q --filter "publish=6379"); \
 	fi
-	@dapr init
+	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
 
 #start: @ Build and start the API server with Dapr sidecar
 start: build
@@ -498,7 +500,7 @@ ci-seed-db:
 
 #ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
 ci-dapr-start:
-	@dapr init
+	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
 	@DAPR_HOST=localhost DAPR_GRPC_PORT=50001 DAPR_HTTP_PORT=3500 \
 	nohup dapr run \
 		--app-id workflow-api \
