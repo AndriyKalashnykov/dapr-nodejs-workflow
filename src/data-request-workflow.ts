@@ -96,36 +96,6 @@ export const fetchPostgresDataActivity = async (
   }
 };
 
-// Activity to get data from state store using direct HTTP API
-export const getFromStateStoreActivity = async (
-  _: WorkflowActivityContext,
-  params: {
-    key: string;
-    storeName: string;
-  },
-): Promise<unknown> => {
-  try {
-    console.log(
-      `Getting data from state store: ${params.storeName} with key: ${params.key}`,
-    );
-
-    // Use direct HTTP call to Dapr sidecar for state store
-    const response = await axios.get(
-      `http://localhost:3500/v1.0/state/${params.storeName}/${params.key}`,
-    );
-
-    console.log(
-      `Successfully retrieved data from state store: ${JSON.stringify(response.data || {})}`,
-    );
-    return response.data;
-  } catch (error) {
-    console.error(
-      `Error getting data from state store: ${error instanceof Error ? error.message : String(error)}`,
-    );
-    throw error;
-  }
-};
-
 // Workflow that processes the payload and fetches data from Postgres
 export const dataRequestWorkflow: TWorkflow = async function* (
   ctx: WorkflowContext,
@@ -135,7 +105,6 @@ export const dataRequestWorkflow: TWorkflow = async function* (
     queryParams?: unknown[];
     storeName?: string;
     resultKey?: string;
-    stateKey?: string;
     delayMs?: number;
   },
 ): AsyncGenerator<unknown, Record<string, unknown>, unknown> {
@@ -156,36 +125,6 @@ export const dataRequestWorkflow: TWorkflow = async function* (
       modifyPayloadActivity,
       payload,
     )) as Record<string, unknown>;
-
-    // If stateKey is provided, try to get data from state store
-    if (input.stateKey && input.storeName) {
-      try {
-        console.log(
-          `Attempting to get data from state store using key: ${input.stateKey}`,
-        );
-        const stateData = yield ctx.callActivity(getFromStateStoreActivity, {
-          key: input.stateKey,
-          storeName: input.storeName,
-        });
-
-        if (stateData) {
-          modifiedPayload.stateData = stateData;
-          console.log(`Added state store data to payload`);
-        }
-      } catch (stateError) {
-        console.error(
-          `Error getting data from state store: ${stateError instanceof Error ? stateError.message : String(stateError)}`,
-        );
-        // Add error info but continue with the workflow
-        modifiedPayload.stateError = {
-          message:
-            stateError instanceof Error
-              ? stateError.message
-              : String(stateError),
-          timestamp: new Date().toISOString(),
-        };
-      }
-    }
 
     // If query and storeName are provided, fetch data from Postgres
     if (input.query && input.storeName) {

@@ -71,18 +71,19 @@ Run `make help` to see all targets in one list.
 
 ### Build & Quality
 
-| Target                  | Description                                                                       |
-| ----------------------- | --------------------------------------------------------------------------------- |
-| `make build`            | Build TypeScript to `dist/`                                                       |
-| `make format`           | Auto-fix formatting with Prettier                                                 |
-| `make format-check`     | Check formatting without modifying files                                          |
-| `make lint`             | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                       |
-| `make vulncheck`        | Audit dependencies for known vulnerabilities                                      |
-| `make secrets`          | Scan for hardcoded secrets with gitleaks                                          |
-| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations               |
-| `make deps-prune`       | Show unused/redundant Node.js dependencies                                        |
-| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                         |
-| `make static-check`     | Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check) |
+| Target                  | Description                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `make build`            | Build TypeScript to `dist/`                                                                          |
+| `make format`           | Auto-fix formatting with Prettier                                                                    |
+| `make format-check`     | Check formatting without modifying files                                                             |
+| `make lint`             | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                                          |
+| `make vulncheck`        | Audit dependencies for known vulnerabilities                                                         |
+| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                             |
+| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                  |
+| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                           |
+| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                            |
+| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments        |
+| `make static-check`     | Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check) |
 
 ### Test
 
@@ -128,13 +129,15 @@ Run `make help` to see all targets in one list.
 
 ### Docker & Image
 
-| Target             | Description                                     |
-| ------------------ | ----------------------------------------------- |
-| `make image-build` | Build the production Docker image (multi-stage) |
-| `make image-run`   | Run the Docker image standalone (no Dapr)       |
-| `make image-stop`  | Stop the running image container                |
-| `make e2e`         | End-to-end test of the production Docker image  |
-| `make dast`        | ZAP baseline DAST scan against the built image  |
+| Target                | Description                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------ |
+| `make image-build`    | Build the production Docker image (multi-stage)                                                        |
+| `make image-run`      | Run the Docker image standalone (no Dapr)                                                              |
+| `make image-stop`     | Stop the running image container                                                                       |
+| `make e2e`            | Shallow e2e: production image standalone, verifies the Dapr-unreachable error path                     |
+| `make e2e-dapr`       | Full-stack e2e: production image + Dapr sidecar, asserts a workflow COMPLETES end-to-end               |
+| `make e2e-durability` | Workflow replay e2e: kills the app mid-flight, asserts the workflow resumes from Redis-persisted state |
+| `make dast`           | ZAP baseline DAST scan against the built image                                                         |
 
 ### Utilities
 
@@ -194,10 +197,11 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 
 | Job              | Depends on                | Steps                                                                                                                                                                             |
 | ---------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **static-check** | —                         | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck)                                                           |
+| **static-check** | —                         | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check)                                         |
 | **build**        | static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                            |
-| **test**         | static-check              | `make test` (Vitest unit tests)                                                                                                                                                   |
-| **e2e**          | build, test               | `make e2e` (build Docker image, start container, validate HTTP endpoints)                                                                                                         |
+| **test**         | static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                     |
+| **e2e**          | build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                   |
+| **e2e-dapr**     | build, test               | `make ci-seed-db` + build image + `./e2e/e2e-dapr.sh` (production image alongside `dapr run` sidecar, asserts workflow COMPLETES). Skipped under act.                             |
 | **integration**  | build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make test-integration` (PostgreSQL service container + Dapr CLI 1.17.1). Skipped under act.                               |
 | **dast**         | build, test               | Build image via `cache-from: type=gha`, `make docker-smoke-test`, cached ZAP image, `make dast-scan`, upload report artifact. Skipped under act.                                  |
 | **docker**       | static-check, build, test | Runs every push in parallel with `e2e`/`dast`; gates 1–4 (build + Trivy + smoke + multi-arch build) always run, registry push + cosign signing are tag-gated (`v*`) at step level |

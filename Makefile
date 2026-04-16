@@ -172,8 +172,26 @@ deps-prune-check: install
 	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" --quiet \
 		|| { echo "ERROR: unused dependencies found. Run 'make deps-prune' to see them."; exit 1; }
 
-#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check)
-static-check: lint vulncheck secrets trivy-fs deps-prune-check
+#components-check: @ Fail if local and CI Dapr component YAMLs drift in structure (password/comments allowed)
+components-check:
+	@set -eu; fail=0; tmp_local=$$(mktemp); tmp_ci=$$(mktemp); \
+	trap 'rm -f "$$tmp_local" "$$tmp_ci"' EXIT; \
+	for f in components/*.yaml; do \
+		base=$$(basename "$$f"); ci="dapr/ci/$$base"; \
+		if [ ! -f "$$ci" ]; then echo "FAIL: $$ci is missing (counterpart of $$f)"; fail=1; continue; fi; \
+		sed -E -e 's/#.*$$//' -e 's/[[:space:]]+$$//' -e 's/postgres:[^@]+@/postgres:***@/' "$$f"  | awk 'NF' > "$$tmp_local"; \
+		sed -E -e 's/#.*$$//' -e 's/[[:space:]]+$$//' -e 's/postgres:[^@]+@/postgres:***@/' "$$ci" | awk 'NF' > "$$tmp_ci"; \
+		if ! cmp -s "$$tmp_local" "$$tmp_ci"; then \
+			echo "FAIL: $$f and $$ci differ beyond allowed fields (password / comments)"; \
+			diff "$$tmp_local" "$$tmp_ci" || true; \
+			fail=1; \
+		fi; \
+	done; \
+	if [ "$$fail" -eq 0 ]; then echo "components-check passed."; fi; \
+	exit $$fail
+
+#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check)
+static-check: lint vulncheck secrets trivy-fs deps-prune-check components-check
 	@echo "Static check passed."
 
 #test: @ Run unit tests
@@ -245,7 +263,7 @@ dapr-init: deps
 
 #start: @ Build and start the API server with Dapr sidecar
 start: build
-	@DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
+	@DAPR_HOST=localhost DAPR_GRPC_PORT=50001 DAPR_HTTP_PORT=3500 \
 	dapr run \
 		--app-id workflow-api \
 		--app-port $(PORT) \
@@ -368,6 +386,16 @@ e2e: image-build
 	echo ""; \
 	echo "e2e tests passed"
 
+#e2e-dapr: @ Full-stack e2e: run production image + Dapr sidecar, assert workflow COMPLETED
+e2e-dapr: image-build
+	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) RESOURCES_PATH=./components \
+		./e2e/e2e-dapr.sh
+
+#e2e-durability: @ Workflow replay e2e: kill the app mid-flight and assert the workflow still COMPLETES
+e2e-durability: image-build
+	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) RESOURCES_PATH=./components \
+		./e2e/e2e-durability.sh
+
 #docker-smoke-test: @ Boot-marker smoke test: start smoke-test container, wait for boot. Leaves container running for DAST (CI)
 docker-smoke-test:
 	@set -eu; \
@@ -471,7 +499,7 @@ ci-seed-db:
 #ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
 ci-dapr-start:
 	@dapr init
-	@DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
+	@DAPR_HOST=localhost DAPR_GRPC_PORT=50001 DAPR_HTTP_PORT=3500 \
 	nohup dapr run \
 		--app-id workflow-api \
 		--app-port 3000 \
@@ -526,5 +554,6 @@ renovate-validate: deps
 	test test-watch test-integration smoke check update upgrade \
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
-	image-build image-run image-stop e2e dast docker-smoke-test dast-scan docker-verify-manifest \
+	image-build image-run image-stop e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
+	components-check \
 	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate

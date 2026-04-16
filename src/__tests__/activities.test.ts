@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { WorkflowActivityContext } from "@dapr/dapr";
-import { modifyPayloadActivity, delayActivity } from "../data-request-workflow";
+import {
+  modifyPayloadActivity,
+  delayActivity,
+  fetchPostgresDataActivity,
+} from "../data-request-workflow";
 
 const stubCtx = {} as WorkflowActivityContext;
 
@@ -67,5 +71,32 @@ describe("delayActivity", () => {
     vi.advanceTimersByTime(0);
 
     await expect(promise).resolves.toBeUndefined();
+  });
+});
+
+describe("fetchPostgresDataActivity", () => {
+  const originalPort = process.env.DAPR_HTTP_PORT;
+
+  afterEach(() => {
+    if (originalPort === undefined) {
+      delete process.env.DAPR_HTTP_PORT;
+    } else {
+      process.env.DAPR_HTTP_PORT = originalPort;
+    }
+  });
+
+  it("returns a structured error envelope when Dapr is unreachable", async () => {
+    // Point the activity at a closed port; 19999 is not expected to be listening
+    process.env.DAPR_HTTP_PORT = "19999";
+
+    const result = await fetchPostgresDataActivity(stubCtx, {
+      query: "select 1",
+      storeName: "postgres-db",
+    });
+
+    expect(result.error).toBe(true);
+    expect(result.message).toBeDefined();
+    expect(typeof result.message).toBe("string");
+    expect(result.timestamp).toBeDefined();
   });
 });
