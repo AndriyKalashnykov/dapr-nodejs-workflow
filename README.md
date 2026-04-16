@@ -91,7 +91,7 @@ Run `make help` to see all targets in one list.
 | ----------------------- | --------------------------------------------------- |
 | `make test`             | Run unit tests                                      |
 | `make test-watch`       | Run unit tests in watch mode                        |
-| `make test-integration` | Run integration tests (requires running Dapr stack) |
+| `make integration-test` | Run integration tests (requires running Dapr stack) |
 | `make smoke`            | HTTP smoke test against built server (no Dapr)      |
 
 ### Infrastructure
@@ -117,13 +117,13 @@ Run `make help` to see all targets in one list.
 
 ### CI & Release
 
-| Target                        | Description                                                                  |
-| ----------------------------- | ---------------------------------------------------------------------------- |
-| `make check`                  | Run full local verification (format-check, static-check, test, build)        |
-| `make ci`                     | Run local CI pipeline (format-check, static-check, test, build)              |
-| `make ci-run`                 | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
-| `make ci-run-tag`             | Run GitHub Actions workflow locally with a tag event (exercises docker job)  |
-| `make release VERSION=vX.Y.Z` | Create and push a release tag                                                |
+| Target                        | Description                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `make check`                  | Run full local verification (static-check, test, build; static-check runs lint which runs prettier --check) |
+| `make ci`                     | Run local CI pipeline (static-check, test, build; static-check runs lint which runs prettier --check)       |
+| `make ci-run`                 | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act)                                |
+| `make ci-run-tag`             | Run GitHub Actions workflow locally with a tag event (exercises docker job)                                 |
+| `make release VERSION=vX.Y.Z` | Create and push a release tag                                                                               |
 
 > The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker-verify-manifest` Makefile targets are called exclusively from CI (service-container provisioning, pre-push image gating, and multi-arch manifest verification). They are not intended for local use — use `make up` + `make start` locally instead.
 
@@ -202,7 +202,7 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 | **test**         | static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                     |
 | **e2e**          | build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                   |
 | **e2e-dapr**     | build, test               | `make ci-seed-db` + build image + `./e2e/e2e-dapr.sh` (production image alongside `dapr run` sidecar, asserts workflow COMPLETES). Skipped under act.                             |
-| **integration**  | build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make test-integration` (PostgreSQL service container + Dapr CLI 1.17.1). Skipped under act.                               |
+| **integration**  | build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make integration-test` (PostgreSQL service container + Dapr CLI 1.17.1). Skipped under act.                               |
 | **dast**         | build, test               | Build image via `cache-from: type=gha`, `make docker-smoke-test`, cached ZAP image, `make dast-scan`, upload report artifact. Skipped under act.                                  |
 | **docker**       | static-check, build, test | Runs every push in parallel with `e2e`/`dast`; gates 1–4 (build + Trivy + smoke + multi-arch build) always run, registry push + cosign signing are tag-gated (`v*`) at step level |
 | **ci-pass**      | all of the above          | Gate job: fails if any upstream job failed                                                                                                                                        |
@@ -340,7 +340,7 @@ make up            # start PostgreSQL
 make start         # start API server with Dapr
 
 # Terminal 2
-make test-integration
+make integration-test
 ```
 
 ### Run CI Locally

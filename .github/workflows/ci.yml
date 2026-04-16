@@ -180,7 +180,7 @@ jobs:
           make ci-dapr-start
 
       - name: Test
-        run: make test-integration
+        run: make integration-test
 
   e2e:
     needs: [build, test]

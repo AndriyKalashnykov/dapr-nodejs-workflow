@@ -23,7 +23,7 @@ make check-db            # Run the database health check endpoint
 
 # Run tests
 make test                # Unit tests (Vitest)
-make test-integration    # Integration tests (requires running Dapr stack)
+make integration-test    # Integration tests (requires running Dapr stack)
 
 # Stop everything
 make stop                # Stop Dapr sidecar and API server
@@ -61,7 +61,7 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                                                   |
 | `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                               |
 | `make static-check`     | Composite quality gate: `lint` + `vulncheck` + `secrets` + `trivy-fs` + `deps-prune-check` + `components-check`. CI calls this single step. |
-| `make check`            | Full local verification: `format-check` + `static-check` + `test` + `build`                                                                 |
+| `make check`            | Full local verification: `static-check` + `test` + `build` (static-check runs lint which runs prettier --check)                             |
 
 ### Infrastructure
 
@@ -87,7 +87,7 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `make test`                   | Run unit tests                                                                                                           |
 | `make test-watch`             | Run unit tests in watch mode                                                                                             |
-| `make test-integration`       | Run integration tests (requires running Dapr stack + PostgreSQL)                                                         |
+| `make integration-test`       | Run integration tests (requires running Dapr stack + PostgreSQL)                                                         |
 | `make smoke`                  | HTTP smoke test against built server (no Dapr)                                                                           |
 | `make e2e`                    | Shallow e2e: runs the production image standalone and verifies the Dapr-unreachable error path                           |
 | `make e2e-dapr`               | Full-stack e2e: runs the production image alongside a real Dapr sidecar and asserts a workflow COMPLETES                 |
@@ -207,7 +207,7 @@ The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, an
 - **test**: `make test` (Vitest unit tests — activity unit tests, supertest-based HTTP tests, `checkPort` helper)
 - **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling (shallow e2e; no Dapr sidecar)
 - **e2e-dapr**: `make ci-seed-db` + builds the image + `./e2e/e2e-dapr.sh` (PostgreSQL service container, Dapr CLI, production image running alongside `dapr run` sidecar). Verifies a real workflow COMPLETES end-to-end with `processed:true` + `dbData` from the Postgres binding. Skipped under act (`vars.ACT=true`).
-- **integration**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make test-integration` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests; covers 404, 400, COMPLETED happy path with `delayMs:0`). Skipped under act (`vars.ACT=true`) because service containers aren't supported.
+- **integration**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make integration-test` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests; covers 404, 400, COMPLETED happy path with `delayMs:0`). Skipped under act (`vars.ACT=true`) because service containers aren't supported.
 - **dast**: `make docker-smoke-test` + `make dast-scan` — rebuilds the production image via `cache-from: type=gha` (≈10s cache hit from the `docker` job), starts it, runs OWASP ZAP baseline scan against `localhost:3100`, uploads the ZAP report as an artifact. Skipped under act (`vars.ACT=true`) because ZAP's docker-in-docker bind mount doesn't round-trip through the host Docker daemon.
 - **docker**: runs on every push in parallel with `e2e` and `dast`. Gates 1–3 (single-arch build, Trivy image scan CRITICAL/HIGH blocking, boot-marker smoke test via `make docker-smoke-test`) and Gate 4 (multi-arch build via `docker/build-push-action`) always run — catches arm64 cross-compile regressions and cosign installer breakage on the commit that introduced them. On tag pushes only, step-level `if: startsWith(github.ref, 'refs/tags/')` gates `Log in to GHCR`, `push: ${{ ... }}` on the multi-arch build, `Verify multi-arch manifest` via `make docker-verify-manifest`, `Install cosign`, and `Sign image with cosign` (Sigstore keyless OIDC signing by digest). Buildkit in-manifest attestations (`provenance`/`sbom`) are explicitly disabled to keep the image index clean of `unknown/unknown` platform entries so GHCR's Packages UI renders the "OS / Arch" tab.
 - **ci-pass**: gate job — runs after all upstream jobs and fails if any of them failed; intended as the single status check for branch protection
@@ -218,7 +218,7 @@ CI uses `--frozen-lockfile` for reproducible builds. The Makefile sets `PNPM_INS
 
 A second workflow, `.github/workflows/cleanup-runs.yml`, runs weekly to delete old workflow runs and stale caches via the native `gh` CLI (no third-party actions).
 
-**Local CI**: `make ci` runs `format-check`, `static-check`, `test`, and `build` locally. `make ci-run` runs the GitHub Actions workflow via `act`. The `integration` job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make test-integration` instead.
+**Local CI**: `make ci` runs `static-check` (which internally runs `format-check` via `lint`), `test`, and `build` locally. `make ci-run` runs the GitHub Actions workflow via `act`. The `integration` job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make integration-test` instead.
 
 ## Key Environment Variables
 

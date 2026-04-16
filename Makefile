@@ -45,7 +45,7 @@ PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)
 help:
 	@echo "Usage: make COMMAND"
 	@echo "Commands :"
-	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-24s\033[0m - %s\n", $$1, $$2}'
+	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-28s\033[0m - %s\n", $$1, $$2}'
 
 #deps: @ Check and install required dependencies (node, pnpm, podman, dapr, git)
 deps:
@@ -204,8 +204,8 @@ test: install
 test-watch: install
 	@pnpm exec vitest
 
-#test-integration: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
-test-integration: install
+#integration-test: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
+integration-test: install
 	@pnpm exec vitest run --config vitest.integration.config.ts
 
 #smoke: @ HTTP smoke test against built server (no Dapr)
@@ -218,8 +218,8 @@ smoke: build
 	curl -sf http://localhost:$(PORT)/ | grep -q "Dapr Workflow API" || { echo "Health check failed"; exit 1; }; \
 	echo "Smoke tests passed"
 
-#check: @ Run full local verification (format-check, static-check, test, build)
-check: format-check static-check test build
+#check: @ Run full local verification (static-check, test, build) — static-check runs lint which runs prettier --check
+check: static-check test build
 
 #update: @ Update dependencies to latest allowed versions
 update: deps
@@ -489,7 +489,7 @@ ci-run-tag: deps-act
 # === CI-specific targets ===
 # These are CI-only because they assume infrastructure (PostgreSQL service container,
 # pre-installed Dapr CLI) provided by GitHub Actions setup actions. The general
-# `install`, `build`, `lint`, `test`, `static-check`, `smoke`, `test-integration`
+# `install`, `build`, `lint`, `test`, `static-check`, `smoke`, `integration-test`
 # targets work in CI directly thanks to PNPM_INSTALL using --frozen-lockfile when
 # CI=true and the deps target skipping podman/dapr checks when CI=true.
 
@@ -526,8 +526,8 @@ ci-dapr-start:
 		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run.log; exit 1; } && \
 	echo "Dapr sidecar and API server are ready."
 
-#ci: @ Run local CI pipeline (format-check, static-check, test, build)
-ci: format-check static-check test build
+#ci: @ Run local CI pipeline (static-check, test, build) — static-check runs lint which runs prettier --check
+ci: static-check test build
 	@echo "Local CI pipeline passed."
 
 #ci-run: @ Run GitHub Actions workflow locally using act (simulates branch push)
@@ -553,7 +553,7 @@ renovate-validate: deps
 
 .PHONY: help deps deps-act deps-trivy deps-gitleaks deps-hadolint clean install build format format-check \
 	lint vulncheck secrets trivy-fs deps-prune deps-prune-check static-check \
-	test test-watch test-integration smoke check update upgrade \
+	test test-watch integration-test smoke check update upgrade \
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
 	image-build image-run image-stop e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
