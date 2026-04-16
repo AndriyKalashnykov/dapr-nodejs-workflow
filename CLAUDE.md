@@ -10,7 +10,7 @@ Dapr Workflow demo using the Dapr JS SDK with an Express HTTP API frontend. A si
 
 ```bash
 # One-time setup
-make deps                # Check and install system dependencies (node, pnpm, podman, dapr, git)
+make deps                # Bootstrap mise + install node/pnpm (from .nvmrc / .mise.toml), then check podman, dapr, git
 make dapr-init           # Initialize Dapr (starts Redis, placement, scheduler containers)
 
 # Start infrastructure + server (two terminals)
@@ -23,7 +23,7 @@ make check-db            # Run the database health check endpoint
 
 # Run tests
 make test                # Unit tests (Vitest)
-make test-integration    # Integration tests (requires running Dapr stack)
+make integration-test    # Integration tests (requires running Dapr stack)
 
 # Stop everything
 make stop                # Stop Dapr sidecar and API server
@@ -36,31 +36,32 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Setup & Dependencies
 
-| Target               | Description                                                              |
-| -------------------- | ------------------------------------------------------------------------ |
-| `make deps`          | Check and install system dependencies (node, pnpm, podman, dapr, git)    |
-| `make deps-act`      | Install act for local CI (GitHub Actions runner)                         |
-| `make deps-trivy`    | Install Trivy for filesystem security scanning                           |
-| `make deps-gitleaks` | Install gitleaks for secret scanning                                     |
-| `make deps-hadolint` | Install hadolint for Dockerfile linting                                  |
-| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)       |
-| `make dapr-init`     | Initialize Dapr in local environment (stops conflicting Redis if needed) |
+| Target               | Description                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| `make deps`          | Bootstrap mise (once) and install node/pnpm (from `.nvmrc` + `.mise.toml`); check podman, dapr, git |
+| `make deps-act`      | Install act for local CI (GitHub Actions runner)                                                    |
+| `make deps-trivy`    | Install Trivy for filesystem security scanning                                                      |
+| `make deps-gitleaks` | Install gitleaks for secret scanning                                                                |
+| `make deps-hadolint` | Install hadolint for Dockerfile linting                                                             |
+| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                  |
+| `make dapr-init`     | Initialize Dapr in local environment (stops conflicting Redis if needed)                            |
 
 ### Build & Quality
 
-| Target                  | Description                                                                                                            |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `make build`            | Compile TypeScript to `dist/`                                                                                          |
-| `make format`           | Auto-fix formatting with Prettier                                                                                      |
-| `make format-check`     | Check formatting without modifying files                                                                               |
-| `make lint`             | Run Prettier check, ESLint (zero warnings), `tsc --noEmit`, and hadolint on the Dockerfile                             |
-| `make vulncheck`        | Audit dependencies for known vulnerabilities (`pnpm audit --audit-level=moderate`)                                     |
-| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                               |
-| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                    |
-| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                             |
-| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                              |
-| `make static-check`     | Composite quality gate: `lint` + `vulncheck` + `secrets` + `trivy-fs` + `deps-prune-check`. CI calls this single step. |
-| `make check`            | Full local verification: `format-check` + `static-check` + `test` + `build`                                            |
+| Target                  | Description                                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make build`            | Compile TypeScript to `dist/`                                                                                                               |
+| `make format`           | Auto-fix formatting with Prettier                                                                                                           |
+| `make format-check`     | Check formatting without modifying files                                                                                                    |
+| `make lint`             | Run Prettier check, ESLint (zero warnings), `tsc --noEmit`, and hadolint on the Dockerfile                                                  |
+| `make vulncheck`        | Audit dependencies for known vulnerabilities (`pnpm audit --audit-level=moderate`)                                                          |
+| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                                                    |
+| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                         |
+| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                                                  |
+| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                                                   |
+| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                               |
+| `make static-check`     | Composite quality gate: `lint` + `vulncheck` + `secrets` + `trivy-fs` + `deps-prune-check` + `components-check`. CI calls this single step. |
+| `make check`            | Full local verification: `static-check` + `test` + `build` (static-check runs lint which runs prettier --check)                             |
 
 ### Infrastructure
 
@@ -86,9 +87,11 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `make test`                   | Run unit tests                                                                                                           |
 | `make test-watch`             | Run unit tests in watch mode                                                                                             |
-| `make test-integration`       | Run integration tests (requires running Dapr stack + PostgreSQL)                                                         |
+| `make integration-test`       | Run integration tests (requires running Dapr stack + PostgreSQL)                                                         |
 | `make smoke`                  | HTTP smoke test against built server (no Dapr)                                                                           |
-| `make e2e`                    | End-to-end test of the production Docker image                                                                           |
+| `make e2e`                    | Shallow e2e: runs the production image standalone and verifies the Dapr-unreachable error path                           |
+| `make e2e-dapr`               | Full-stack e2e: runs the production image alongside a real Dapr sidecar and asserts a workflow COMPLETES                 |
+| `make e2e-durability`         | Workflow replay e2e: kills the app mid-flight and asserts the workflow still COMPLETES from Redis-persisted state        |
 | `make dast`                   | ZAP baseline DAST scan (local: builds image, runs container, scans, cleans up)                                           |
 | `make docker-smoke-test`      | Boot-marker smoke test; starts `smoke-test` container and leaves it running for DAST (CI)                                |
 | `make dast-scan`              | Run ZAP scan against an already-running container on `localhost:3100` (CI)                                               |
@@ -121,11 +124,15 @@ The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker
 
 ```
 src/
-  api-server.ts              Express app, lazy-init WorkflowRuntime + DaprWorkflowClient
-  data-request-workflow.ts   dataRequestWorkflow generator and all activities
+  api-server.ts              Entrypoint: imports app, calls listen, wires SIGINT
+  app.ts                     Express app, lazy-init WorkflowRuntime + DaprWorkflowClient, exported for tests
+  data-request-workflow.ts   dataRequestWorkflow generator and activities
   __tests__/
-    *.test.ts                Unit tests (Vitest)
+    *.test.ts                Unit tests (Vitest; supertest against the exported app)
     *.integration.test.ts    Integration tests (require running Dapr stack)
+e2e/
+  e2e-dapr.sh                Full-stack e2e: production image + Dapr sidecar + workflow happy-path
+  e2e-durability.sh          Durability e2e: kill app mid-flight, assert workflow resumes
 components/                  Dapr component configs -- local dev
   postgres.yaml              bindings.postgres (password: daprrulz)
   redis.yaml                 state.redis (localhost:6379)
@@ -139,6 +146,8 @@ docker-compose.yaml          PostgreSQL + Redis for local development
 Dockerfile                   Multi-stage production image (distroless, non-root)
 .dockerignore                Excludes non-runtime files from build context
 .hadolint.yaml               Hadolint Dockerfile linter configuration
+.mise.toml                   mise tool pins (pnpm); Node pinned via .nvmrc
+.nvmrc                       Node major version; read by mise and actions/setup-node
 ```
 
 ### Request Flow
@@ -184,43 +193,44 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 
 ### API Endpoints
 
-| Method | Path                   | Description                                                  |
-| ------ | ---------------------- | ------------------------------------------------------------ |
-| `GET`  | `/`                    | Health check -- returns `{ message }`                        |
-| `POST` | `/process-payload`     | Schedules a new workflow; returns `{ id }` immediately (202) |
-| `GET`  | `/workflow/:id/status` | Polls workflow state; `output` only present when complete    |
-| `GET`  | `/db-health`           | Schedules a workflow and waits up to 10s for completion      |
+| Method | Path                   | Description                                                                                                                          |
+| ------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET`  | `/`                    | Health check -- returns `{ message }`                                                                                                |
+| `POST` | `/process-payload`     | Schedules a new workflow; returns `{ id }` (202). Empty body returns 400. Optional `delayMs` override (default 30000 — tests use 0). |
+| `GET`  | `/workflow/:id/status` | Polls workflow state; `output` only present when complete. Unknown id returns 404.                                                   |
+| `GET`  | `/db-health`           | Schedules a workflow and waits up to 10s for completion                                                                              |
 
 ### CI Pipeline (`.github/workflows/ci.yml`)
 
 The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, and is reusable via `workflow_call`. Jobs:
 
-- **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + hadolint + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck (single composite quality gate)
+- **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + hadolint + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck + `components-check` (local vs CI Dapr component drift gate) — single composite quality gate
 - **build**: `make build` + `make smoke` (HTTP smoke test against the built server, no Dapr)
-- **test**: `make test` (Vitest unit tests)
-- **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling
-- **integration**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make test-integration` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests). Skipped under act (`vars.ACT=true`) because service containers aren't supported.
+- **test**: `make test` (Vitest unit tests — activity unit tests, supertest-based HTTP tests, `checkPort` helper)
+- **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling (shallow e2e; no Dapr sidecar)
+- **e2e-dapr**: `make ci-seed-db` + builds the image + `./e2e/e2e-dapr.sh` (PostgreSQL service container, Dapr CLI, production image running alongside `dapr run` sidecar). Verifies a real workflow COMPLETES end-to-end with `processed:true` + `dbData` from the Postgres binding. Skipped under act (`vars.ACT=true`).
+- **integration**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make integration-test` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests; covers 404, 400, COMPLETED happy path with `delayMs:0`). Skipped under act (`vars.ACT=true`) because service containers aren't supported.
 - **dast**: `make docker-smoke-test` + `make dast-scan` — rebuilds the production image via `cache-from: type=gha` (≈10s cache hit from the `docker` job), starts it, runs OWASP ZAP baseline scan against `localhost:3100`, uploads the ZAP report as an artifact. Skipped under act (`vars.ACT=true`) because ZAP's docker-in-docker bind mount doesn't round-trip through the host Docker daemon.
 - **docker**: runs on every push in parallel with `e2e` and `dast`. Gates 1–3 (single-arch build, Trivy image scan CRITICAL/HIGH blocking, boot-marker smoke test via `make docker-smoke-test`) and Gate 4 (multi-arch build via `docker/build-push-action`) always run — catches arm64 cross-compile regressions and cosign installer breakage on the commit that introduced them. On tag pushes only, step-level `if: startsWith(github.ref, 'refs/tags/')` gates `Log in to GHCR`, `push: ${{ ... }}` on the multi-arch build, `Verify multi-arch manifest` via `make docker-verify-manifest`, `Install cosign`, and `Sign image with cosign` (Sigstore keyless OIDC signing by digest). Buildkit in-manifest attestations (`provenance`/`sbom`) are explicitly disabled to keep the image index clean of `unknown/unknown` platform entries so GHCR's Packages UI renders the "OS / Arch" tab.
 - **ci-pass**: gate job — runs after all upstream jobs and fails if any of them failed; intended as the single status check for branch protection
 
-Job dependencies: `static-check` -> `build` + `test` (parallel) -> `e2e` + `integration` + `dast` + `docker` (all four parallel; `e2e`/`integration`/`dast` need `[build, test]`, `docker` needs `[static-check, build, test]`) -> `ci-pass`.
+Job dependencies: `static-check` -> `build` + `test` (parallel) -> `e2e` + `e2e-dapr` + `integration` + `dast` + `docker` (all five parallel; `e2e`/`e2e-dapr`/`integration`/`dast` need `[build, test]`, `docker` needs `[static-check, build, test]`) -> `ci-pass`.
 
 CI uses `--frozen-lockfile` for reproducible builds. The Makefile sets `PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)`, so `make install` automatically picks the right mode based on the `CI` environment variable.
 
 A second workflow, `.github/workflows/cleanup-runs.yml`, runs weekly to delete old workflow runs and stale caches via the native `gh` CLI (no third-party actions).
 
-**Local CI**: `make ci` runs `format-check`, `static-check`, `test`, and `build` locally. `make ci-run` runs the GitHub Actions workflow via `act`. The `integration` job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make test-integration` instead.
+**Local CI**: `make ci` runs `static-check` (which internally runs `format-check` via `lint`), `test`, and `build` locally. `make ci-run` runs the GitHub Actions workflow via `act`. The `integration` job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make integration-test` instead.
 
 ## Key Environment Variables
 
-| Variable         | Default | Purpose                                                                                                   |
-| ---------------- | ------- | --------------------------------------------------------------------------------------------------------- |
-| `PORT`           | `3000`  | Express listen port                                                                                       |
-| `DAPR_HTTP_PORT` | `3500`  | Dapr sidecar HTTP port (read by `fetchPostgresDataActivity`)                                              |
-| `CI`             | unset   | When set (e.g. by GitHub Actions), `deps` skips podman/dapr checks and `install` uses `--frozen-lockfile` |
-
-> Note: the `start` Makefile target exports `DAPR_HOST=localhost` for completeness, but the application currently hardcodes `daprHost = "localhost"` in `src/api-server.ts` and does not read this env var. Safe to remove on the next refactor.
+| Variable         | Default     | Purpose                                                                                                   |
+| ---------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
+| `PORT`           | `3000`      | Express listen port                                                                                       |
+| `DAPR_HOST`      | `localhost` | Dapr sidecar hostname used by `DaprWorkflowClient` / `WorkflowRuntime` (gRPC)                             |
+| `DAPR_GRPC_PORT` | `50001`     | Dapr sidecar gRPC port used by `DaprWorkflowClient` / `WorkflowRuntime`                                   |
+| `DAPR_HTTP_PORT` | `3500`      | Dapr sidecar HTTP port (read by `fetchPostgresDataActivity` for binding calls)                            |
+| `CI`             | unset       | When set (e.g. by GitHub Actions), `deps` skips podman/dapr checks and `install` uses `--frozen-lockfile` |
 
 ## Workflow Rules
 
@@ -248,13 +258,33 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 
 ## Upgrade Backlog
 
+### Critical / time-boxed
+
+- [ ] **Debian 12 (Bookworm) EOL 2026-06-10** — `Dockerfile` uses `node:24-bookworm-slim` + `gcr.io/distroless/nodejs24-debian12:nonroot`. Distroless has a Debian-13 variant (`nodejs24-debian13:nonroot` probed, 200 OK). Migrate both stages to Trixie before 2026-06-10 or lose upstream security patches.
+- [ ] **Redis 8.0 EOL'd 2026-02-11** — `docker-compose.yaml` pins `redis:8-alpine@sha256:81b6f81d…` which is from the 8.0 line. Current `8-alpine` digest is `sha256:c5e375abb…` (resolves to `redis:8.6.2` on Trixie). Bump digest (Renovate `docker-compose` manager should propose; verify no PR is stuck).
+
+### Known architectural / Renovate gaps
+
 - [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override; monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
+- [ ] `axios` pulls `follow-redirects` (overridden to `>=1.16.0`) — monitor axios for a release that bumps the dep and drops the override
 - [ ] Ubuntu 26.04 LTS shipped Apr 2026 — actively track the GitHub Actions `ubuntu-latest` runner migration (runners transition in stages after the release) and bump any hardcoded `ubuntu-24.04` / `ubuntu-22.04` `runs-on:` pins when the new image is stable
-- [ ] `dapr/setup-dapr@v2` runs on Node 20 (deprecated by GitHub Sep 2026) — no `v3` released yet, even `main` uses `node20`. Track [dapr/setup-dapr](https://github.com/dapr/setup-dapr) for an update
+- [ ] `dapr/setup-dapr@v2` runs on Node 20 (deprecated by GitHub Sep 2026). Upstream last commit 2024-07-01; no `v3` released yet, even `main` uses `node20`. Track [dapr/setup-dapr](https://github.com/dapr/setup-dapr) for an update
 - [ ] `pnpm/action-setup@v5` emits `[DEP0169] url.parse()` deprecation warning in CI logs — upstream issue, will resolve in a future patch
-- [ ] CI workflow `env: DAPR_CLI_VERSION` duplicates Makefile constant — `dapr/setup-dapr` has no auto-detect equivalent of `packageManager`. Either accept the duplication or add a Renovate custom regex
-- [ ] `postgres:18-alpine` digest is hardcoded in `ci.yml` AND `docker-compose.yaml` — only the compose pin is Renovate-tracked, so the CI workflow will silently lag. Consider a custom regex or refactor CI to read from compose
-- [ ] Dapr runtime is unpinned (`dapr init` pulls latest) — consider `--runtime-version $(DAPR_RUNTIME_VERSION)` for reproducibility
+- [ ] CI workflow `env: DAPR_CLI_VERSION` duplicates Makefile constant. Add a Renovate custom regex for `.github/workflows/ci.yml` `DAPR_CLI_VERSION: <ver>` matching `datasource=github-releases depName=dapr/cli`
+- [ ] `postgres:18-alpine` digest is hardcoded in `ci.yml` AND `docker-compose.yaml` — only the compose pin is Renovate-tracked. Add a custom regex for `ci.yml` `postgres:18-alpine@sha256:<digest>` (datasource=docker depName=postgres)
+- [ ] Dapr runtime is unpinned (`dapr init` pulls latest) — add `--runtime-version $(DAPR_RUNTIME_VERSION)` for reproducibility; track via Renovate's `github-releases` datasource on `dapr/dapr`
+- [ ] **`@types/node` has no Renovate constraint to match Node's major.** Latest is 25.x; Node pinned to 24 via `.nvmrc`. The `type-definitions` group auto-merges, so a silent cross-major type bump is possible. Add a Renovate `packageRule`: `{ "matchPackageNames": ["@types/node"], "allowedVersions": "/^24\\./" }`
+- [ ] **`pnpm` version pinned in two places**: `package.json#packageManager` AND `Makefile PNPM_VERSION`. Renovate updates each independently via different managers (`npm` for packageManager, custom regex for the Makefile). Consider deriving the Makefile value from `package.json` at runtime to eliminate drift
+
+### GitHub Actions majors waiting (bundle when Renovate proposes)
+
+- [ ] `docker/setup-qemu-action` v3 → v4
+- [ ] `docker/setup-buildx-action` v3 → v4
+- [ ] `docker/build-push-action` v6 → v7 (cache defaults changed)
+- [ ] `docker/login-action` v3 → v4
+- [ ] `docker/metadata-action` v5 → v6 (default flavor behavior changed)
+- [ ] `actions/upload-artifact` v4 → v7 (three majors; v4 removed cross-job merging — used only for ZAP report, low risk)
+- [ ] `actions/cache` v4 → v5 (first run after upgrade will cache-miss)
 
 ## Skills
 

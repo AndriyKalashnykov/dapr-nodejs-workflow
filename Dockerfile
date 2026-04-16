@@ -4,7 +4,7 @@
 # Stage 1: Install production + dev dependencies (cached layer)
 # ============================================================================
 # renovate: datasource=docker depName=node
-FROM node:24-bookworm-slim@sha256:b506e7321f176aae77317f99d67a24b272c1f09f1d10f1761f2773447d8da26c AS deps
+FROM node:24-trixie-slim@sha256:28fd420825d8e922eab0fd91740c7cf88ddbdc8116a2b20a82049f0c946feb03 AS deps
 
 RUN corepack enable
 
@@ -41,8 +41,8 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 # ============================================================================
 # Stage 3: Distroless runtime — no shell, no package manager, non-root
 # ============================================================================
-# renovate: datasource=docker depName=gcr.io/distroless/nodejs24-debian12
-FROM gcr.io/distroless/nodejs24-debian12:nonroot@sha256:14d42e2511532589a7c7e01a753667a74fcc96266e137e8125006b87b0c32d0a AS runtime
+# renovate: datasource=docker depName=gcr.io/distroless/nodejs24-debian13
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:1e2c4183b84122745dc2236b9b43bee09c54db091044d593eb8f755a954ad22a AS runtime
 
 WORKDIR /app
 

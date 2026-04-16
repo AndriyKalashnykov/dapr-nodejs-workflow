@@ -34,17 +34,18 @@ make start         # build and start API server with Dapr sidecar (foreground)
 
 ## Prerequisites
 
-| Tool                                                               | Version  | Purpose                                                                  |
-| ------------------------------------------------------------------ | -------- | ------------------------------------------------------------------------ |
-| [GNU Make](https://www.gnu.org/software/make/)                     | 3.81+    | Build orchestration                                                      |
-| [Node.js](https://nodejs.org/)                                     | 24+      | JavaScript runtime (installed by `make deps`)                            |
-| [pnpm](https://pnpm.io/)                                           | 10.33.0+ | Package manager (installed by `make deps`)                               |
-| [Podman](https://podman.io/)                                       | latest   | Container runtime for PostgreSQL/Redis                                   |
-| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17.1+  | Dapr sidecar management (installed by `make deps`)                       |
-| [Git](https://git-scm.com/)                                        | latest   | Version control                                                          |
-| [act](https://github.com/nektos/act)                               | 0.2.87+  | Run GitHub Actions locally (optional, installed by `make deps-act`)      |
-| [Trivy](https://trivy.dev/)                                        | 0.69.3+  | Filesystem CVE/secret/misconfig scanner (installed by `make deps-trivy`) |
-| [gitleaks](https://github.com/gitleaks/gitleaks)                   | 8.30.1+  | Secret scanner (installed by `make deps-gitleaks`)                       |
+| Tool                                                               | Version  | Purpose                                                                                                    |
+| ------------------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------- |
+| [GNU Make](https://www.gnu.org/software/make/)                     | 3.81+    | Build orchestration                                                                                        |
+| [mise](https://mise.jdx.dev/)                                      | latest   | Tool version manager — bootstrapped by `make deps`; reads `.nvmrc` + `.mise.toml` to install Node and pnpm |
+| [Node.js](https://nodejs.org/)                                     | 24+      | JavaScript runtime (installed by mise via `.nvmrc`)                                                        |
+| [pnpm](https://pnpm.io/)                                           | 10.33.0+ | Package manager (installed by mise via `.mise.toml`)                                                       |
+| [Podman](https://podman.io/)                                       | latest   | Container runtime for PostgreSQL/Redis                                                                     |
+| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17.1+  | Dapr sidecar management (installed by `make deps`)                                                         |
+| [Git](https://git-scm.com/)                                        | latest   | Version control                                                                                            |
+| [act](https://github.com/nektos/act)                               | 0.2.87+  | Run GitHub Actions locally (optional, installed by `make deps-act`)                                        |
+| [Trivy](https://trivy.dev/)                                        | 0.69.3+  | Filesystem CVE/secret/misconfig scanner (installed by `make deps-trivy`)                                   |
+| [gitleaks](https://github.com/gitleaks/gitleaks)                   | 8.30.1+  | Secret scanner (installed by `make deps-gitleaks`)                                                         |
 
 Install all required dependencies:
 
@@ -58,31 +59,32 @@ Run `make help` to see all targets in one list.
 
 ### Setup & Dependencies
 
-| Target               | Description                                                             |
-| -------------------- | ----------------------------------------------------------------------- |
-| `make help`          | List all available tasks                                                |
-| `make deps`          | Check and install required dependencies (node, pnpm, podman, dapr, git) |
-| `make deps-act`      | Install act for local CI (GitHub Actions runner)                        |
-| `make deps-trivy`    | Install Trivy for filesystem security scanning                          |
-| `make deps-gitleaks` | Install gitleaks for secret scanning                                    |
-| `make deps-hadolint` | Install hadolint for Dockerfile linting                                 |
-| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)      |
-| `make clean`         | Remove build artifacts and node_modules                                 |
+| Target               | Description                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| `make help`          | List all available tasks                                                                            |
+| `make deps`          | Bootstrap mise (once) and install node/pnpm (from `.nvmrc` + `.mise.toml`); check podman, dapr, git |
+| `make deps-act`      | Install act for local CI (GitHub Actions runner)                                                    |
+| `make deps-trivy`    | Install Trivy for filesystem security scanning                                                      |
+| `make deps-gitleaks` | Install gitleaks for secret scanning                                                                |
+| `make deps-hadolint` | Install hadolint for Dockerfile linting                                                             |
+| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                  |
+| `make clean`         | Remove build artifacts and node_modules                                                             |
 
 ### Build & Quality
 
-| Target                  | Description                                                                       |
-| ----------------------- | --------------------------------------------------------------------------------- |
-| `make build`            | Build TypeScript to `dist/`                                                       |
-| `make format`           | Auto-fix formatting with Prettier                                                 |
-| `make format-check`     | Check formatting without modifying files                                          |
-| `make lint`             | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                       |
-| `make vulncheck`        | Audit dependencies for known vulnerabilities                                      |
-| `make secrets`          | Scan for hardcoded secrets with gitleaks                                          |
-| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations               |
-| `make deps-prune`       | Show unused/redundant Node.js dependencies                                        |
-| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                         |
-| `make static-check`     | Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check) |
+| Target                  | Description                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------- |
+| `make build`            | Build TypeScript to `dist/`                                                                          |
+| `make format`           | Auto-fix formatting with Prettier                                                                    |
+| `make format-check`     | Check formatting without modifying files                                                             |
+| `make lint`             | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                                          |
+| `make vulncheck`        | Audit dependencies for known vulnerabilities                                                         |
+| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                             |
+| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                  |
+| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                           |
+| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                            |
+| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments        |
+| `make static-check`     | Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check) |
 
 ### Test
 
@@ -90,7 +92,7 @@ Run `make help` to see all targets in one list.
 | ----------------------- | --------------------------------------------------- |
 | `make test`             | Run unit tests                                      |
 | `make test-watch`       | Run unit tests in watch mode                        |
-| `make test-integration` | Run integration tests (requires running Dapr stack) |
+| `make integration-test` | Run integration tests (requires running Dapr stack) |
 | `make smoke`            | HTTP smoke test against built server (no Dapr)      |
 
 ### Infrastructure
@@ -116,25 +118,27 @@ Run `make help` to see all targets in one list.
 
 ### CI & Release
 
-| Target                        | Description                                                                  |
-| ----------------------------- | ---------------------------------------------------------------------------- |
-| `make check`                  | Run full local verification (format-check, static-check, test, build)        |
-| `make ci`                     | Run local CI pipeline (format-check, static-check, test, build)              |
-| `make ci-run`                 | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act) |
-| `make ci-run-tag`             | Run GitHub Actions workflow locally with a tag event (exercises docker job)  |
-| `make release VERSION=vX.Y.Z` | Create and push a release tag                                                |
+| Target                        | Description                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `make check`                  | Run full local verification (static-check, test, build; static-check runs lint which runs prettier --check) |
+| `make ci`                     | Run local CI pipeline (static-check, test, build; static-check runs lint which runs prettier --check)       |
+| `make ci-run`                 | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act)                                |
+| `make ci-run-tag`             | Run GitHub Actions workflow locally with a tag event (exercises docker job)                                 |
+| `make release VERSION=vX.Y.Z` | Create and push a release tag                                                                               |
 
 > The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker-verify-manifest` Makefile targets are called exclusively from CI (service-container provisioning, pre-push image gating, and multi-arch manifest verification). They are not intended for local use — use `make up` + `make start` locally instead.
 
 ### Docker & Image
 
-| Target             | Description                                     |
-| ------------------ | ----------------------------------------------- |
-| `make image-build` | Build the production Docker image (multi-stage) |
-| `make image-run`   | Run the Docker image standalone (no Dapr)       |
-| `make image-stop`  | Stop the running image container                |
-| `make e2e`         | End-to-end test of the production Docker image  |
-| `make dast`        | ZAP baseline DAST scan against the built image  |
+| Target                | Description                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------ |
+| `make image-build`    | Build the production Docker image (multi-stage)                                                        |
+| `make image-run`      | Run the Docker image standalone (no Dapr)                                                              |
+| `make image-stop`     | Stop the running image container                                                                       |
+| `make e2e`            | Shallow e2e: production image standalone, verifies the Dapr-unreachable error path                     |
+| `make e2e-dapr`       | Full-stack e2e: production image + Dapr sidecar, asserts a workflow COMPLETES end-to-end               |
+| `make e2e-durability` | Workflow replay e2e: kills the app mid-flight, asserts the workflow resumes from Redis-persisted state |
+| `make dast`           | ZAP baseline DAST scan against the built image                                                         |
 
 ### Utilities
 
@@ -194,11 +198,12 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 
 | Job              | Depends on                | Steps                                                                                                                                                                             |
 | ---------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **static-check** | —                         | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck)                                                           |
+| **static-check** | —                         | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check)                                         |
 | **build**        | static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                            |
-| **test**         | static-check              | `make test` (Vitest unit tests)                                                                                                                                                   |
-| **e2e**          | build, test               | `make e2e` (build Docker image, start container, validate HTTP endpoints)                                                                                                         |
-| **integration**  | build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make test-integration` (PostgreSQL service container + Dapr CLI 1.17.1). Skipped under act.                               |
+| **test**         | static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                     |
+| **e2e**          | build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                   |
+| **e2e-dapr**     | build, test               | `make ci-seed-db` + build image + `./e2e/e2e-dapr.sh` (production image alongside `dapr run` sidecar, asserts workflow COMPLETES). Skipped under act.                             |
+| **integration**  | build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make integration-test` (PostgreSQL service container + Dapr CLI 1.17.1). Skipped under act.                               |
 | **dast**         | build, test               | Build image via `cache-from: type=gha`, `make docker-smoke-test`, cached ZAP image, `make dast-scan`, upload report artifact. Skipped under act.                                  |
 | **docker**       | static-check, build, test | Runs every push in parallel with `e2e`/`dast`; gates 1–4 (build + Trivy + smoke + multi-arch build) always run, registry push + cosign signing are tag-gated (`v*`) at step level |
 | **ci-pass**      | all of the above          | Gate job: fails if any upstream job failed                                                                                                                                        |
@@ -336,7 +341,7 @@ make up            # start PostgreSQL
 make start         # start API server with Dapr
 
 # Terminal 2
-make test-integration
+make integration-test
 ```
 
 ### Run CI Locally

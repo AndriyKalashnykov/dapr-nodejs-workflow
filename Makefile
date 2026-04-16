@@ -10,16 +10,17 @@ CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "de
 PORT ?= 3000
 
 # --- Pinned tool versions ---
-# renovate: datasource=github-releases depName=nvm-sh/nvm
-NVM_VERSION      := 0.40.4
-# Single source of truth: .nvmrc — see /makefile skill §3 (file-based derivation)
+# Node + pnpm are managed by mise (see .mise.toml and .nvmrc).
+# Single source of truth: .nvmrc — see /makefile skill §3 (file-based derivation).
+# mise reads .nvmrc natively for Node and .mise.toml for pnpm; no NVM_VERSION
+# pin or nvm install branch — per skill §"Version Manager Policy (BLOCKING)".
 NODE_VERSION     := $(shell cat .nvmrc 2>/dev/null || echo 24)
-# renovate: datasource=npm depName=pnpm
-PNPM_VERSION     := 10.33.0
 # renovate: datasource=github-releases depName=nektos/act
 ACT_VERSION      := 0.2.87
 # renovate: datasource=github-releases depName=dapr/cli
 DAPR_CLI_VERSION := 1.17.1
+# renovate: datasource=github-releases depName=dapr/dapr
+DAPR_RUNTIME_VERSION := 1.17.5
 # renovate: datasource=github-releases depName=aquasecurity/trivy
 TRIVY_VERSION    := 0.69.3
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
@@ -43,28 +44,28 @@ PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)
 help:
 	@echo "Usage: make COMMAND"
 	@echo "Commands :"
-	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-24s\033[0m - %s\n", $$1, $$2}'
+	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-28s\033[0m - %s\n", $$1, $$2}'
 
-#deps: @ Check and install required dependencies (node, pnpm, podman, dapr, git)
+#deps: @ Check and install required dependencies (node + pnpm via mise; podman, dapr, git)
 deps:
 	@echo "Checking dependencies..."
-	@command -v node >/dev/null 2>&1 || { echo "Installing Node.js via nvm..."; \
-		if [ -s "$$HOME/.nvm/nvm.sh" ]; then \
-			. "$$HOME/.nvm/nvm.sh" && nvm install $(NODE_VERSION); \
-		else \
-			echo "Installing nvm..."; \
-			curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
-			export NVM_DIR="$$HOME/.nvm"; \
-			. "$$NVM_DIR/nvm.sh" && nvm install $(NODE_VERSION); \
-		fi; \
-	}
-	@command -v pnpm >/dev/null 2>&1 || { echo "Installing pnpm..."; \
-		if command -v corepack >/dev/null 2>&1; then \
-			corepack enable && corepack prepare pnpm@$(PNPM_VERSION) --activate; \
-		else \
-			npm install -g pnpm@$(PNPM_VERSION); \
-		fi; \
-	}
+	@# mise bootstraps Node (from .nvmrc) + pnpm (from .mise.toml) in one step.
+	@# CI runners use jdx/mise-action to install mise; local dev bootstraps it here.
+	@if [ -z "$$CI" ] && ! command -v mise >/dev/null 2>&1; then \
+		echo "Installing mise (no root required, installs to ~/.local/bin)..."; \
+		curl -fsSL https://mise.run | sh; \
+		echo ""; \
+		echo "mise installed. Activate it in your shell, then re-run 'make deps':"; \
+		echo "  bash: echo 'eval \"\$$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc"; \
+		echo "  zsh:  echo 'eval \"\$$(~/.local/bin/mise activate zsh)\"'  >> ~/.zshrc"; \
+		exit 0; \
+	fi
+	@if command -v mise >/dev/null 2>&1; then \
+		mise install; \
+	else \
+		command -v node >/dev/null 2>&1 || { echo "ERROR: node required but mise is not installed"; exit 1; }; \
+		command -v pnpm >/dev/null 2>&1 || { echo "ERROR: pnpm required but mise is not installed"; exit 1; }; \
+	fi
 	@if [ -z "$$CI" ]; then \
 		command -v podman >/dev/null 2>&1 || { \
 			echo "ERROR: Podman is required. Install from https://podman.io/getting-started/installation"; exit 1; \
@@ -172,8 +173,26 @@ deps-prune-check: install
 	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" --quiet \
 		|| { echo "ERROR: unused dependencies found. Run 'make deps-prune' to see them."; exit 1; }
 
-#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check)
-static-check: lint vulncheck secrets trivy-fs deps-prune-check
+#components-check: @ Fail if local and CI Dapr component YAMLs drift in structure (password/comments allowed)
+components-check:
+	@set -eu; fail=0; tmp_local=$$(mktemp); tmp_ci=$$(mktemp); \
+	trap 'rm -f "$$tmp_local" "$$tmp_ci"' EXIT; \
+	for f in components/*.yaml; do \
+		base=$$(basename "$$f"); ci="dapr/ci/$$base"; \
+		if [ ! -f "$$ci" ]; then echo "FAIL: $$ci is missing (counterpart of $$f)"; fail=1; continue; fi; \
+		sed -E -e 's/#.*$$//' -e 's/[[:space:]]+$$//' -e 's/postgres:[^@]+@/postgres:***@/' "$$f"  | awk 'NF' > "$$tmp_local"; \
+		sed -E -e 's/#.*$$//' -e 's/[[:space:]]+$$//' -e 's/postgres:[^@]+@/postgres:***@/' "$$ci" | awk 'NF' > "$$tmp_ci"; \
+		if ! cmp -s "$$tmp_local" "$$tmp_ci"; then \
+			echo "FAIL: $$f and $$ci differ beyond allowed fields (password / comments)"; \
+			diff "$$tmp_local" "$$tmp_ci" || true; \
+			fail=1; \
+		fi; \
+	done; \
+	if [ "$$fail" -eq 0 ]; then echo "components-check passed."; fi; \
+	exit $$fail
+
+#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check)
+static-check: lint vulncheck secrets trivy-fs deps-prune-check components-check
 	@echo "Static check passed."
 
 #test: @ Run unit tests
@@ -184,8 +203,8 @@ test: install
 test-watch: install
 	@pnpm exec vitest
 
-#test-integration: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
-test-integration: install
+#integration-test: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
+integration-test: install
 	@pnpm exec vitest run --config vitest.integration.config.ts
 
 #smoke: @ HTTP smoke test against built server (no Dapr)
@@ -198,8 +217,8 @@ smoke: build
 	curl -sf http://localhost:$(PORT)/ | grep -q "Dapr Workflow API" || { echo "Health check failed"; exit 1; }; \
 	echo "Smoke tests passed"
 
-#check: @ Run full local verification (format-check, static-check, test, build)
-check: format-check static-check test build
+#check: @ Run full local verification (static-check, test, build) — static-check runs lint which runs prettier --check
+check: static-check test build
 
 #update: @ Update dependencies to latest allowed versions
 update: deps
@@ -241,11 +260,11 @@ dapr-init: deps
 		echo "Stopping container on port 6379 to free it for dapr init..."; \
 		podman stop $$(podman ps -q --filter "publish=6379"); \
 	fi
-	@dapr init
+	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
 
 #start: @ Build and start the API server with Dapr sidecar
 start: build
-	@DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
+	@DAPR_HOST=localhost DAPR_GRPC_PORT=50001 DAPR_HTTP_PORT=3500 \
 	dapr run \
 		--app-id workflow-api \
 		--app-port $(PORT) \
@@ -368,6 +387,16 @@ e2e: image-build
 	echo ""; \
 	echo "e2e tests passed"
 
+#e2e-dapr: @ Full-stack e2e: run production image + Dapr sidecar, assert workflow COMPLETED
+e2e-dapr: image-build
+	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) RESOURCES_PATH=./components \
+		./e2e/e2e-dapr.sh
+
+#e2e-durability: @ Workflow replay e2e: kill the app mid-flight and assert the workflow still COMPLETES
+e2e-durability: image-build
+	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) RESOURCES_PATH=./components \
+		./e2e/e2e-durability.sh
+
 #docker-smoke-test: @ Boot-marker smoke test: start smoke-test container, wait for boot. Leaves container running for DAST (CI)
 docker-smoke-test:
 	@set -eu; \
@@ -459,7 +488,7 @@ ci-run-tag: deps-act
 # === CI-specific targets ===
 # These are CI-only because they assume infrastructure (PostgreSQL service container,
 # pre-installed Dapr CLI) provided by GitHub Actions setup actions. The general
-# `install`, `build`, `lint`, `test`, `static-check`, `smoke`, `test-integration`
+# `install`, `build`, `lint`, `test`, `static-check`, `smoke`, `integration-test`
 # targets work in CI directly thanks to PNPM_INSTALL using --frozen-lockfile when
 # CI=true and the deps target skipping podman/dapr checks when CI=true.
 
@@ -470,8 +499,8 @@ ci-seed-db:
 
 #ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
 ci-dapr-start:
-	@dapr init
-	@DAPR_HOST=localhost DAPR_HTTP_PORT=3500 \
+	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
+	@DAPR_HOST=localhost DAPR_GRPC_PORT=50001 DAPR_HTTP_PORT=3500 \
 	nohup dapr run \
 		--app-id workflow-api \
 		--app-port 3000 \
@@ -496,8 +525,8 @@ ci-dapr-start:
 		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run.log; exit 1; } && \
 	echo "Dapr sidecar and API server are ready."
 
-#ci: @ Run local CI pipeline (format-check, static-check, test, build)
-ci: format-check static-check test build
+#ci: @ Run local CI pipeline (static-check, test, build) — static-check runs lint which runs prettier --check
+ci: static-check test build
 	@echo "Local CI pipeline passed."
 
 #ci-run: @ Run GitHub Actions workflow locally using act (simulates branch push)
@@ -523,8 +552,9 @@ renovate-validate: deps
 
 .PHONY: help deps deps-act deps-trivy deps-gitleaks deps-hadolint clean install build format format-check \
 	lint vulncheck secrets trivy-fs deps-prune deps-prune-check static-check \
-	test test-watch test-integration smoke check update upgrade \
+	test test-watch integration-test smoke check update upgrade \
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
-	image-build image-run image-stop e2e dast docker-smoke-test dast-scan docker-verify-manifest \
+	image-build image-run image-stop e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
+	components-check \
 	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate
