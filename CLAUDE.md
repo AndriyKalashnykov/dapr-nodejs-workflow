@@ -10,7 +10,7 @@ Dapr Workflow demo using the Dapr JS SDK with an Express HTTP API frontend. A si
 
 ```bash
 # One-time setup
-make deps                # Check and install system dependencies (node, pnpm, podman, dapr, git)
+make deps                # Bootstrap mise + install node/pnpm (from .nvmrc / .mise.toml), then check podman, dapr, git
 make dapr-init           # Initialize Dapr (starts Redis, placement, scheduler containers)
 
 # Start infrastructure + server (two terminals)
@@ -36,15 +36,15 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Setup & Dependencies
 
-| Target               | Description                                                              |
-| -------------------- | ------------------------------------------------------------------------ |
-| `make deps`          | Check and install system dependencies (node, pnpm, podman, dapr, git)    |
-| `make deps-act`      | Install act for local CI (GitHub Actions runner)                         |
-| `make deps-trivy`    | Install Trivy for filesystem security scanning                           |
-| `make deps-gitleaks` | Install gitleaks for secret scanning                                     |
-| `make deps-hadolint` | Install hadolint for Dockerfile linting                                  |
-| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)       |
-| `make dapr-init`     | Initialize Dapr in local environment (stops conflicting Redis if needed) |
+| Target               | Description                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| `make deps`          | Bootstrap mise (once) and install node/pnpm (from `.nvmrc` + `.mise.toml`); check podman, dapr, git |
+| `make deps-act`      | Install act for local CI (GitHub Actions runner)                                                    |
+| `make deps-trivy`    | Install Trivy for filesystem security scanning                                                      |
+| `make deps-gitleaks` | Install gitleaks for secret scanning                                                                |
+| `make deps-hadolint` | Install hadolint for Dockerfile linting                                                             |
+| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                  |
+| `make dapr-init`     | Initialize Dapr in local environment (stops conflicting Redis if needed)                            |
 
 ### Build & Quality
 
@@ -146,6 +146,8 @@ docker-compose.yaml          PostgreSQL + Redis for local development
 Dockerfile                   Multi-stage production image (distroless, non-root)
 .dockerignore                Excludes non-runtime files from build context
 .hadolint.yaml               Hadolint Dockerfile linter configuration
+.mise.toml                   mise tool pins (pnpm); Node pinned via .nvmrc
+.nvmrc                       Node major version; read by mise and actions/setup-node
 ```
 
 ### Request Flow

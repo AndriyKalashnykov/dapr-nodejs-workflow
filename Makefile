@@ -10,12 +10,11 @@ CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "de
 PORT ?= 3000
 
 # --- Pinned tool versions ---
-# renovate: datasource=github-releases depName=nvm-sh/nvm
-NVM_VERSION      := 0.40.4
-# Single source of truth: .nvmrc — see /makefile skill §3 (file-based derivation)
+# Node + pnpm are managed by mise (see .mise.toml and .nvmrc).
+# Single source of truth: .nvmrc — see /makefile skill §3 (file-based derivation).
+# mise reads .nvmrc natively for Node and .mise.toml for pnpm; no NVM_VERSION
+# pin or nvm install branch — per skill §"Version Manager Policy (BLOCKING)".
 NODE_VERSION     := $(shell cat .nvmrc 2>/dev/null || echo 24)
-# renovate: datasource=npm depName=pnpm
-PNPM_VERSION     := 10.33.0
 # renovate: datasource=github-releases depName=nektos/act
 ACT_VERSION      := 0.2.87
 # renovate: datasource=github-releases depName=dapr/cli
@@ -47,26 +46,26 @@ help:
 	@echo "Commands :"
 	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-28s\033[0m - %s\n", $$1, $$2}'
 
-#deps: @ Check and install required dependencies (node, pnpm, podman, dapr, git)
+#deps: @ Check and install required dependencies (node + pnpm via mise; podman, dapr, git)
 deps:
 	@echo "Checking dependencies..."
-	@command -v node >/dev/null 2>&1 || { echo "Installing Node.js via nvm..."; \
-		if [ -s "$$HOME/.nvm/nvm.sh" ]; then \
-			. "$$HOME/.nvm/nvm.sh" && nvm install $(NODE_VERSION); \
-		else \
-			echo "Installing nvm..."; \
-			curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v$(NVM_VERSION)/install.sh | bash; \
-			export NVM_DIR="$$HOME/.nvm"; \
-			. "$$NVM_DIR/nvm.sh" && nvm install $(NODE_VERSION); \
-		fi; \
-	}
-	@command -v pnpm >/dev/null 2>&1 || { echo "Installing pnpm..."; \
-		if command -v corepack >/dev/null 2>&1; then \
-			corepack enable && corepack prepare pnpm@$(PNPM_VERSION) --activate; \
-		else \
-			npm install -g pnpm@$(PNPM_VERSION); \
-		fi; \
-	}
+	@# mise bootstraps Node (from .nvmrc) + pnpm (from .mise.toml) in one step.
+	@# CI runners use jdx/mise-action to install mise; local dev bootstraps it here.
+	@if [ -z "$$CI" ] && ! command -v mise >/dev/null 2>&1; then \
+		echo "Installing mise (no root required, installs to ~/.local/bin)..."; \
+		curl -fsSL https://mise.run | sh; \
+		echo ""; \
+		echo "mise installed. Activate it in your shell, then re-run 'make deps':"; \
+		echo "  bash: echo 'eval \"\$$(~/.local/bin/mise activate bash)\"' >> ~/.bashrc"; \
+		echo "  zsh:  echo 'eval \"\$$(~/.local/bin/mise activate zsh)\"'  >> ~/.zshrc"; \
+		exit 0; \
+	fi
+	@if command -v mise >/dev/null 2>&1; then \
+		mise install; \
+	else \
+		command -v node >/dev/null 2>&1 || { echo "ERROR: node required but mise is not installed"; exit 1; }; \
+		command -v pnpm >/dev/null 2>&1 || { echo "ERROR: pnpm required but mise is not installed"; exit 1; }; \
+	fi
 	@if [ -z "$$CI" ]; then \
 		command -v podman >/dev/null 2>&1 || { \
 			echo "ERROR: Podman is required. Install from https://podman.io/getting-started/installation"; exit 1; \

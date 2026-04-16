@@ -34,17 +34,18 @@ make start         # build and start API server with Dapr sidecar (foreground)
 
 ## Prerequisites
 
-| Tool                                                               | Version  | Purpose                                                                  |
-| ------------------------------------------------------------------ | -------- | ------------------------------------------------------------------------ |
-| [GNU Make](https://www.gnu.org/software/make/)                     | 3.81+    | Build orchestration                                                      |
-| [Node.js](https://nodejs.org/)                                     | 24+      | JavaScript runtime (installed by `make deps`)                            |
-| [pnpm](https://pnpm.io/)                                           | 10.33.0+ | Package manager (installed by `make deps`)                               |
-| [Podman](https://podman.io/)                                       | latest   | Container runtime for PostgreSQL/Redis                                   |
-| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17.1+  | Dapr sidecar management (installed by `make deps`)                       |
-| [Git](https://git-scm.com/)                                        | latest   | Version control                                                          |
-| [act](https://github.com/nektos/act)                               | 0.2.87+  | Run GitHub Actions locally (optional, installed by `make deps-act`)      |
-| [Trivy](https://trivy.dev/)                                        | 0.69.3+  | Filesystem CVE/secret/misconfig scanner (installed by `make deps-trivy`) |
-| [gitleaks](https://github.com/gitleaks/gitleaks)                   | 8.30.1+  | Secret scanner (installed by `make deps-gitleaks`)                       |
+| Tool                                                               | Version  | Purpose                                                                                                    |
+| ------------------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------- |
+| [GNU Make](https://www.gnu.org/software/make/)                     | 3.81+    | Build orchestration                                                                                        |
+| [mise](https://mise.jdx.dev/)                                      | latest   | Tool version manager — bootstrapped by `make deps`; reads `.nvmrc` + `.mise.toml` to install Node and pnpm |
+| [Node.js](https://nodejs.org/)                                     | 24+      | JavaScript runtime (installed by mise via `.nvmrc`)                                                        |
+| [pnpm](https://pnpm.io/)                                           | 10.33.0+ | Package manager (installed by mise via `.mise.toml`)                                                       |
+| [Podman](https://podman.io/)                                       | latest   | Container runtime for PostgreSQL/Redis                                                                     |
+| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17.1+  | Dapr sidecar management (installed by `make deps`)                                                         |
+| [Git](https://git-scm.com/)                                        | latest   | Version control                                                                                            |
+| [act](https://github.com/nektos/act)                               | 0.2.87+  | Run GitHub Actions locally (optional, installed by `make deps-act`)                                        |
+| [Trivy](https://trivy.dev/)                                        | 0.69.3+  | Filesystem CVE/secret/misconfig scanner (installed by `make deps-trivy`)                                   |
+| [gitleaks](https://github.com/gitleaks/gitleaks)                   | 8.30.1+  | Secret scanner (installed by `make deps-gitleaks`)                                                         |
 
 Install all required dependencies:
 
@@ -58,16 +59,16 @@ Run `make help` to see all targets in one list.
 
 ### Setup & Dependencies
 
-| Target               | Description                                                             |
-| -------------------- | ----------------------------------------------------------------------- |
-| `make help`          | List all available tasks                                                |
-| `make deps`          | Check and install required dependencies (node, pnpm, podman, dapr, git) |
-| `make deps-act`      | Install act for local CI (GitHub Actions runner)                        |
-| `make deps-trivy`    | Install Trivy for filesystem security scanning                          |
-| `make deps-gitleaks` | Install gitleaks for secret scanning                                    |
-| `make deps-hadolint` | Install hadolint for Dockerfile linting                                 |
-| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)      |
-| `make clean`         | Remove build artifacts and node_modules                                 |
+| Target               | Description                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------- |
+| `make help`          | List all available tasks                                                                            |
+| `make deps`          | Bootstrap mise (once) and install node/pnpm (from `.nvmrc` + `.mise.toml`); check podman, dapr, git |
+| `make deps-act`      | Install act for local CI (GitHub Actions runner)                                                    |
+| `make deps-trivy`    | Install Trivy for filesystem security scanning                                                      |
+| `make deps-gitleaks` | Install gitleaks for secret scanning                                                                |
+| `make deps-hadolint` | Install hadolint for Dockerfile linting                                                             |
+| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                  |
+| `make clean`         | Remove build artifacts and node_modules                                                             |
 
 ### Build & Quality
 
