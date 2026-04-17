@@ -43,14 +43,12 @@ permissions:
   contents: read
 
 env:
-  # Node version is read from .nvmrc by mise; pnpm version is pinned in .mise.toml.
-  # jdx/mise-action installs both in one step. Renovate's mise manager tracks both.
-  # Dapr CLI version is duplicated from Makefile DAPR_CLI_VERSION; Renovate keeps both in sync
-  # via the ci-yml-env custom regex in renovate.json.
-  # renovate: datasource=github-releases depName=dapr/cli
-  DAPR_CLI_VERSION: 1.17.1
-  # ZAP version is duplicated from Makefile ZAP_VERSION (same reason). Kept here so
-  # the cache key, image pull, and image save all reference a single value.
+  # All CLI tool versions (node, pnpm, act, dapr, gitleaks, hadolint, trivy) are
+  # pinned in .mise.toml / .nvmrc — jdx/mise-action installs every tool in one
+  # step, and Renovate's native mise manager tracks updates. No per-tool env
+  # vars here.
+  # ZAP version is kept here because it's a Docker image tag (no mise backend);
+  # this single value drives the cache key, pull, and save steps in the dast job.
   # renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
   ZAP_VERSION: 2.17.0
 
@@ -183,10 +181,7 @@ jobs:
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pnpm-store-${{ runner.os }}-
 
-      - name: Install Dapr CLI
-        uses: dapr/setup-dapr@8d980918fd43a2765c143ce7f687665b2d46a6b9 # v2
-        with:
-          version: ${{ env.DAPR_CLI_VERSION }}
+      # Dapr CLI is installed by jdx/mise-action above (pinned in .mise.toml).
 
       - name: Seed database
         run: make ci-seed-db
@@ -261,10 +256,12 @@ jobs:
 
       - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      - name: Install Dapr CLI
-        uses: dapr/setup-dapr@8d980918fd43a2765c143ce7f687665b2d46a6b9 # v2
+      - name: Set up mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: ${{ env.DAPR_CLI_VERSION }}
+          install: true
+          cache: true
+          experimental: true # pnpm backend
 
       - name: Initialize Dapr
         run: dapr init
