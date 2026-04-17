@@ -65,6 +65,212 @@ Install all required dependencies:
 make deps
 ```
 
+## Architecture
+
+### Container View
+
+```mermaid
+C4Container
+  title Container View — Dapr Node.js Workflow
+
+  Person(user, "API Consumer")
+
+  System_Boundary(sys, "Dapr Node.js Workflow") {
+    Container(api, "Express API", "Node.js 24, TypeScript 6, Express 5", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
+    Container(sidecar, "Dapr Sidecar", "daprd 1.17.5", "Workflow engine, component bindings, state store client")
+    ContainerDb(redis, "Redis", "Redis 8", "Dapr state store — durable workflow state for replay on restart")
+    ContainerDb(postgres, "PostgreSQL", "PostgreSQL 18", "Queried by fetchPostgresDataActivity via Dapr binding")
+  }
+
+  Rel(user, api, "Schedule / poll workflow", "HTTPS / JSON")
+  Rel(api, sidecar, "Workflow client + runtime", "gRPC :50001")
+  Rel(api, sidecar, "Binding invocation (from activities)", "HTTP :3500")
+  Rel(sidecar, redis, "Persist workflow state", "TCP :6379")
+  Rel(sidecar, postgres, "bindings.postgres", "TCP :5432")
+```
+
+- **Express API** + **WorkflowRuntime** run in the same Node process. The API handlers are thin — they schedule workflows via `DaprWorkflowClient` over gRPC, and the sidecar's scheduler streams activity work items back to the runtime over the same gRPC connection.
+- **Dapr Sidecar** (`daprd`, pinned to 1.17.5 via `DAPR_RUNTIME_VERSION`) is the orchestrator. All state persistence, activity dispatch, and component I/O go through it.
+- **Redis** stores durable workflow state. Killing the app container mid-run and restarting it replays the workflow from Redis-persisted state — verified end-to-end by `make e2e-durability`.
+- **PostgreSQL** is _not_ used directly by the app. The `fetchPostgresDataActivity` POSTs a SQL query to the sidecar's binding HTTP API; the sidecar resolves it via the `bindings.postgres` component and returns rows.
+
+### Workflow Sequence — `POST /process-payload` through `GET /workflow/:id/status`
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as API Consumer
+  participant A as Express API<br/>(+ WorkflowRuntime)
+  participant D as Dapr Sidecar
+  participant P as PostgreSQL
+
+  U->>+A: POST /process-payload
+  A->>+D: scheduleNewWorkflow (gRPC)
+  D-->>-A: workflow id
+  A-->>-U: 202 { id }
+
+  rect rgb(245,245,245)
+    Note over D,A: Async activity dispatch via gRPC streaming
+    D->>A: delayActivity(ms)
+    A-->>D: ok
+    D->>A: modifyPayloadActivity(payload)
+    A-->>D: enriched payload
+    D->>A: fetchPostgresDataActivity
+    A->>D: POST /v1.0/bindings/postgres-db
+    D->>+P: SELECT * FROM users
+    P-->>-D: rows
+    D-->>A: rows
+    A-->>D: dbData
+  end
+
+  Note over D: Workflow state persisted to Redis after each activity
+
+  U->>+A: GET /workflow/:id/status
+  A->>+D: getWorkflowState (gRPC)
+  D-->>-A: runtime status + output
+  A-->>-U: 200 { status, output }
+```
+
+The `delayActivity` step defaults to 30 s (simulating a long-running request); tests and `e2e-dapr` override it to 0 via the request body. While a workflow is mid-flight, `GET /workflow/:id/status` returns `RUNNING`; once all activities complete, the same endpoint returns `COMPLETED` with the enriched JSON payload.
+
+### Service Ports
+
+| Service        | Port  | Protocol | Purpose                          |
+| -------------- | ----- | -------- | -------------------------------- |
+| Express API    | 3000  | HTTP     | REST endpoints                   |
+| Dapr sidecar   | 3500  | HTTP     | Binding calls from activities    |
+| Dapr sidecar   | 50001 | gRPC     | WorkflowClient / WorkflowRuntime |
+| Dapr scheduler | 50006 | gRPC     | Workflow scheduling              |
+| PostgreSQL     | 5432  | TCP      | Database backend                 |
+| Redis          | 6379  | TCP      | Dapr state store                 |
+
+### Project Layout
+
+```text
+src/
+  api-server.ts              Entrypoint: imports app, calls listen, wires SIGINT
+  app.ts                     Express app, lazy-init Dapr workflow client (exported for tests)
+  data-request-workflow.ts   Workflow definition and activities
+  __tests__/
+    *.test.ts                Unit tests (Vitest + supertest)
+    *.integration.test.ts    Integration tests (require running Dapr stack)
+e2e/
+  e2e-dapr.sh                Full-stack e2e: production image + Dapr sidecar
+  e2e-durability.sh          Durability e2e: kill app mid-flight, assert resume
+components/                  Dapr component configs (local dev)
+dapr/ci/                     Dapr component configs (CI)
+db/                          SQL schema and seed data
+docker-compose.yaml          PostgreSQL + Redis for local development
+```
+
+## Usage
+
+### Run with Dapr
+
+```bash
+# Terminal 1 -- start infrastructure and server
+make up            # start PostgreSQL + Redis via Podman Compose
+make start         # build and start API server with Dapr sidecar (foreground)
+
+# Terminal 2 -- verify
+make check-db      # run database health check workflow
+make check-workflow # trigger a test workflow and poll the result
+```
+
+### Run without Dapr (HTTP health check only)
+
+```bash
+make start-no-dapr
+curl http://localhost:3000/
+```
+
+### Stop
+
+```bash
+make stop          # stop Dapr sidecar and API server
+make down          # stop PostgreSQL + Redis containers
+```
+
+## API
+
+| Method | Path                   | Description                                                                                          |
+| ------ | ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| `GET`  | `/`                    | Health check                                                                                         |
+| `POST` | `/process-payload`     | Schedule a new workflow; returns `{ id }` (202). Empty body returns 400. Optional `delayMs` in body. |
+| `GET`  | `/workflow/:id/status` | Poll workflow state; `output` present when `status == "COMPLETED"`. Unknown id returns 404.          |
+| `GET`  | `/db-health`           | Schedule a workflow and wait up to 10s for DB result                                                 |
+
+### Example: trigger a workflow
+
+```bash
+# Schedule
+curl -X POST http://localhost:3000/process-payload \
+  -H "Content-Type: application/json" \
+  -d '{"name": "John Doe", "data": {"key1": "value1"}}'
+# -> {"message":"...","id":"82236756-4f38-4b5f-9796-a1268184561e"}
+
+# Poll (while 30s delay activity is running)
+curl http://localhost:3000/workflow/82236756-4f38-4b5f-9796-a1268184561e/status | jq .
+```
+
+While running:
+
+```json
+{
+  "id": "82236756-4f38-4b5f-9796-a1268184561e",
+  "status": "RUNNING",
+  "createdAt": "2026-04-16T16:34:44.118Z",
+  "lastUpdatedAt": "2026-04-16T16:34:47.139Z"
+}
+```
+
+After completion (`output` is present):
+
+```json
+{
+  "id": "82236756-4f38-4b5f-9796-a1268184561e",
+  "status": "COMPLETED",
+  "output": "{\"name\":\"John Doe\",\"processed\":true,...}",
+  "createdAt": "2026-04-16T16:34:44.118Z",
+  "lastUpdatedAt": "2026-04-16T16:35:21.199Z"
+}
+```
+
+## Testing
+
+### Unit Tests
+
+```bash
+make test          # run Vitest unit tests (activity logic + supertest HTTP)
+make test-watch    # run unit tests in watch mode
+```
+
+### Integration Tests
+
+Integration tests require the full Dapr stack (PostgreSQL + Redis + Dapr sidecar):
+
+```bash
+# Terminal 1
+make up            # start PostgreSQL + Redis
+make start         # start API server with Dapr
+
+# Terminal 2
+make integration-test
+```
+
+### End-to-end Tests
+
+`make e2e` runs the production Docker image standalone and verifies the Dapr-unreachable error path (shallow e2e, no sidecar). `make e2e-dapr` builds the image and runs it alongside a real Dapr sidecar to assert a workflow COMPLETES end-to-end. `make e2e-durability` additionally kills the app container mid-flight and asserts the workflow resumes from Redis-persisted state.
+
+### Run CI Locally
+
+```bash
+make ci            # run static-check, test, build locally
+make ci-run        # run GitHub Actions workflow locally via act (requires Docker)
+```
+
+> The `integration` GitHub Actions job uses service containers not supported by `act`. Test integration locally with the steps above.
+
 ## Available Make Targets
 
 Run `make help` to see all targets in one list.
@@ -162,107 +368,13 @@ Run `make help` to see all targets in one list.
 | `make renovate`          | Run Renovate locally in dry-run mode                      |
 | `make renovate-validate` | Validate Renovate configuration                           |
 
-## Architecture
-
-### Container View
-
-```mermaid
-C4Container
-  title Container View — Dapr Node.js Workflow
-
-  Person(user, "API Consumer")
-
-  System_Boundary(sys, "Dapr Node.js Workflow") {
-    Container(api, "Express API", "Node.js 24, TypeScript 6, Express 5", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
-    Container(sidecar, "Dapr Sidecar", "daprd 1.17.5", "Workflow engine, component bindings, state store client")
-    ContainerDb(redis, "Redis", "Redis 8", "Dapr state store — durable workflow state for replay on restart")
-    ContainerDb(postgres, "PostgreSQL", "PostgreSQL 18", "Queried by fetchPostgresDataActivity via Dapr binding")
-  }
-
-  Rel(user, api, "Schedule / poll workflow", "HTTPS / JSON")
-  Rel(api, sidecar, "Workflow client + runtime", "gRPC :50001")
-  Rel(api, sidecar, "Binding invocation (from activities)", "HTTP :3500")
-  Rel(sidecar, redis, "Persist workflow state", "TCP :6379")
-  Rel(sidecar, postgres, "bindings.postgres", "TCP :5432")
-```
-
-- **Express API** + **WorkflowRuntime** run in the same Node process. The API handlers are thin — they schedule workflows via `DaprWorkflowClient` over gRPC, and the sidecar's scheduler streams activity work items back to the runtime over the same gRPC connection.
-- **Dapr Sidecar** (`daprd`, pinned to 1.17.5 via `DAPR_RUNTIME_VERSION`) is the orchestrator. All state persistence, activity dispatch, and component I/O go through it.
-- **Redis** stores durable workflow state. Killing the app container mid-run and restarting it replays the workflow from Redis-persisted state — verified end-to-end by `make e2e-durability`.
-- **PostgreSQL** is _not_ used directly by the app. The `fetchPostgresDataActivity` POSTs a SQL query to the sidecar's binding HTTP API; the sidecar resolves it via the `bindings.postgres` component and returns rows.
-
-### Workflow Sequence — `POST /process-payload` through `GET /workflow/:id/status`
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant U as API Consumer
-  participant A as Express API<br/>(+ WorkflowRuntime)
-  participant D as Dapr Sidecar
-  participant P as PostgreSQL
-
-  U->>+A: POST /process-payload
-  A->>+D: scheduleNewWorkflow (gRPC)
-  D-->>-A: workflow id
-  A-->>-U: 202 { id }
-
-  rect rgb(245,245,245)
-    Note over D,A: Async activity dispatch via gRPC streaming
-    D->>A: delayActivity(ms)
-    A-->>D: ok
-    D->>A: modifyPayloadActivity(payload)
-    A-->>D: enriched payload
-    D->>A: fetchPostgresDataActivity
-    A->>D: POST /v1.0/bindings/postgres-db
-    D->>+P: SELECT * FROM users
-    P-->>-D: rows
-    D-->>A: rows
-    A-->>D: dbData
-  end
-
-  Note over D: Workflow state persisted to Redis after each activity
-
-  U->>+A: GET /workflow/:id/status
-  A->>+D: getWorkflowState (gRPC)
-  D-->>-A: runtime status + output
-  A-->>-U: 200 { status, output }
-```
-
-The `delayActivity` step defaults to 30 s (simulating a long-running request); tests and `e2e-dapr` override it to 0 via the request body. While a workflow is mid-flight, `GET /workflow/:id/status` returns `RUNNING`; once all activities complete, the same endpoint returns `COMPLETED` with the enriched JSON payload.
-
-### Service Ports
-
-| Service        | Port  | Protocol | Purpose                          |
-| -------------- | ----- | -------- | -------------------------------- |
-| Express API    | 3000  | HTTP     | REST endpoints                   |
-| Dapr sidecar   | 3500  | HTTP     | Binding calls from activities    |
-| Dapr sidecar   | 50001 | gRPC     | WorkflowClient / WorkflowRuntime |
-| Dapr scheduler | 50006 | gRPC     | Workflow scheduling              |
-| PostgreSQL     | 5432  | TCP      | Database backend                 |
-| Redis          | 6379  | TCP      | Dapr state store                 |
-
-### Project Layout
-
-```
-src/
-  api-server.ts              Express app with lazy-init Dapr workflow client
-  data-request-workflow.ts   Workflow definition and all activities
-  __tests__/
-    *.test.ts                Unit tests
-    *.integration.test.ts    Integration tests (require Dapr stack)
-components/                  Dapr component configs (local dev)
-dapr/ci/                     Dapr component configs (CI)
-db/                          SQL schema and seed data
-docker-compose.yaml          PostgreSQL + Redis for local development
-```
-
 ## CI/CD
 
 GitHub Actions runs on every push to `main`, version tags (`v*`), and pull requests. The workflow is reusable via `workflow_call`.
 
 | Job              | Depends on                | Steps                                                                                                                                                                             |
 | ---------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **static-check** | —                         | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check)                                         |
+| **static-check** | —                         | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check, mermaid-lint)                           |
 | **build**        | static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                            |
 | **test**         | static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                     |
 | **e2e**          | build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                   |
@@ -313,109 +425,9 @@ The `cleanup-runs.yml` workflow runs weekly to delete old workflow runs and stal
 
 `GITHUB_TOKEN` is provisioned automatically by GitHub Actions; no manual setup is needed.
 
-## Usage
+## Contributing
 
-### Run with Dapr
-
-```bash
-# Terminal 1 -- start infrastructure and server
-make up            # start PostgreSQL + Redis via Podman Compose
-make start         # build and start API server with Dapr sidecar (foreground)
-
-# Terminal 2 -- verify
-make check-db      # run database health check workflow
-make check-workflow # trigger a test workflow and poll the result
-```
-
-### Run without Dapr (HTTP health check only)
-
-```bash
-make start-no-dapr
-curl http://localhost:3000/
-```
-
-### Stop
-
-```bash
-make stop          # stop Dapr sidecar and API server
-make down          # stop PostgreSQL + Redis containers
-```
-
-## API
-
-| Method | Path                   | Description                                                 |
-| ------ | ---------------------- | ----------------------------------------------------------- |
-| `GET`  | `/`                    | Health check                                                |
-| `POST` | `/process-payload`     | Schedule a new workflow; returns `{ id }` immediately (202) |
-| `GET`  | `/workflow/:id/status` | Poll workflow state; `output` only present when complete    |
-| `GET`  | `/db-health`           | Schedule a workflow and wait up to 10s for DB result        |
-
-### Example: trigger a workflow
-
-```bash
-# Schedule
-curl -X POST http://localhost:3000/process-payload \
-  -H "Content-Type: application/json" \
-  -d '{"name": "John Doe", "data": {"key1": "value1"}}'
-# -> {"message":"...","id":"82236756-4f38-4b5f-9796-a1268184561e"}
-
-# Poll (while 30s delay activity is running)
-curl http://localhost:3000/workflow/82236756-4f38-4b5f-9796-a1268184561e/status | jq .
-```
-
-While running:
-
-```json
-{
-  "id": "82236756-4f38-4b5f-9796-a1268184561e",
-  "status": "0",
-  "createdAt": "2025-09-16T16:34:44.118Z",
-  "lastUpdatedAt": "2025-09-16T16:34:47.139Z"
-}
-```
-
-After completion (`output` is present):
-
-```json
-{
-  "id": "82236756-4f38-4b5f-9796-a1268184561e",
-  "status": "1",
-  "output": "{\"name\":\"John Doe\",\"processed\":true,...}",
-  "createdAt": "2025-09-16T16:34:44.118Z",
-  "lastUpdatedAt": "2025-09-16T16:35:21.199Z"
-}
-```
-
-## Testing
-
-### Unit Tests
-
-```bash
-make test          # run Vitest unit tests
-make test-watch    # run unit tests in watch mode
-```
-
-### Integration Tests
-
-Integration tests require the full Dapr stack (PostgreSQL + Redis + Dapr sidecar):
-
-```bash
-# Terminal 1
-make up            # start PostgreSQL
-make start         # start API server with Dapr
-
-# Terminal 2
-make integration-test
-```
-
-### Run CI Locally
-
-```bash
-make ci            # run format-check, static-check, test, build locally
-make ci-run        # run GitHub Actions workflow locally via act (requires Docker)
-```
-
-> The `integration` GitHub Actions job uses service containers not supported by `act`. Test integration locally with the steps above.
+Contributions welcome — open a PR.
 
 ## References
 
