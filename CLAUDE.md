@@ -36,15 +36,11 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Setup & Dependencies
 
-| Target               | Description                                                                                         |
-| -------------------- | --------------------------------------------------------------------------------------------------- |
-| `make deps`          | Bootstrap mise (once) and install node/pnpm (from `.nvmrc` + `.mise.toml`); check podman, dapr, git |
-| `make deps-act`      | Install act for local CI (GitHub Actions runner)                                                    |
-| `make deps-trivy`    | Install Trivy for filesystem security scanning                                                      |
-| `make deps-gitleaks` | Install gitleaks for secret scanning                                                                |
-| `make deps-hadolint` | Install hadolint for Dockerfile linting                                                             |
-| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                  |
-| `make dapr-init`     | Initialize Dapr in local environment (stops conflicting Redis if needed)                            |
+| Target           | Description                                                                                                                                                |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make deps`      | Bootstrap mise (once) and install every pinned tool (node from `.nvmrc`; pnpm, act, dapr, gitleaks, hadolint, trivy from `.mise.toml`); check podman + git |
+| `make install`   | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                                                                         |
+| `make dapr-init` | Initialize Dapr in local environment (stops conflicting Redis if needed)                                                                                   |
 
 ### Build & Quality
 
@@ -285,7 +281,6 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 - [ ] Ubuntu 26.04 LTS shipped Apr 2026 — actively track the GitHub Actions `ubuntu-latest` runner migration (runners transition in stages after the release) and bump any hardcoded `ubuntu-24.04` / `ubuntu-22.04` `runs-on:` pins when the new image is stable
 - [ ] `dapr/setup-dapr@v2` runs on Node 20 (deprecated by GitHub Sep 2026). Upstream last commit 2024-07-01; no `v3` released yet, even `main` uses `node20`. Track [dapr/setup-dapr](https://github.com/dapr/setup-dapr) for an update
 - [ ] `pnpm/action-setup@v5` emits `[DEP0169] url.parse()` deprecation warning in CI logs — upstream issue, will resolve in a future patch
-- [ ] CI workflow `env: DAPR_CLI_VERSION` duplicates Makefile constant. Add a Renovate custom regex for `.github/workflows/ci.yml` `DAPR_CLI_VERSION: <ver>` matching `datasource=github-releases depName=dapr/cli`
 - [ ] `postgres:18-alpine` digest is hardcoded in `ci.yml` AND `docker-compose.yaml` — only the compose pin is Renovate-tracked. Add a custom regex for `ci.yml` `postgres:18-alpine@sha256:<digest>` (datasource=docker depName=postgres)
 - [ ] Dapr runtime is unpinned (`dapr init` pulls latest) — add `--runtime-version $(DAPR_RUNTIME_VERSION)` for reproducibility; track via Renovate's `github-releases` datasource on `dapr/dapr`
 - [ ] **`@types/node` has no Renovate constraint to match Node's major.** Latest is 25.x; Node pinned to 24 via `.nvmrc`. The `type-definitions` group auto-merges, so a silent cross-major type bump is possible. Add a Renovate `packageRule`: `{ "matchPackageNames": ["@types/node"], "allowedVersions": "/^24\\./" }`

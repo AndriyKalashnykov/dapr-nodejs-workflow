@@ -37,7 +37,7 @@ C4Context
 ## Quick Start
 
 ```bash
-make deps          # install system dependencies (node, pnpm, podman, dapr, git)
+make deps          # bootstrap mise + install every pinned tool (node, pnpm, act, dapr, gitleaks, hadolint, trivy); check podman + git
 make dapr-init     # initialize Dapr (one-time; starts Redis, placement, scheduler)
 make up            # start PostgreSQL + Redis via Podman Compose
 make start         # build and start API server with Dapr sidecar (foreground)
@@ -46,19 +46,21 @@ make start         # build and start API server with Dapr sidecar (foreground)
 
 ## Prerequisites
 
-| Tool                                                               | Version  | Purpose                                                                                                    |
-| ------------------------------------------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------- |
-| [GNU Make](https://www.gnu.org/software/make/)                     | 3.81+    | Build orchestration                                                                                        |
-| [mise](https://mise.jdx.dev/)                                      | latest   | Tool version manager — bootstrapped by `make deps`; reads `.nvmrc` + `.mise.toml` to install Node and pnpm |
-| [Node.js](https://nodejs.org/)                                     | 24+      | JavaScript runtime (installed by mise via `.nvmrc`)                                                        |
-| [pnpm](https://pnpm.io/)                                           | 10.33.0+ | Package manager (installed by mise via `.mise.toml`)                                                       |
-| [Podman](https://podman.io/)                                       | latest   | Container runtime for PostgreSQL/Redis                                                                     |
-| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17.1+  | Dapr sidecar management (installed by `make deps`)                                                         |
-| [Git](https://git-scm.com/)                                        | latest   | Version control                                                                                            |
-| [act](https://github.com/nektos/act)                               | 0.2.87+  | Run GitHub Actions locally (optional, installed by `make deps-act`)                                        |
-| [Trivy](https://trivy.dev/)                                        | 0.69.3+  | Filesystem CVE/secret/misconfig scanner (installed by `make deps-trivy`)                                   |
-| [gitleaks](https://github.com/gitleaks/gitleaks)                   | 8.30.1+  | Secret scanner (installed by `make deps-gitleaks`)                                                         |
-| [hadolint](https://github.com/hadolint/hadolint)                   | 2.14.0+  | Dockerfile linter (installed by `make deps-hadolint`, invoked by `make lint`)                              |
+Every tool below (except `make`, `podman`, `git`) is pinned in `.mise.toml` / `.nvmrc` and installed in one step by `make deps` (which bootstraps [mise](https://mise.jdx.dev/) if missing).
+
+| Tool                                                               | Version  | Purpose                                                                           |
+| ------------------------------------------------------------------ | -------- | --------------------------------------------------------------------------------- |
+| [GNU Make](https://www.gnu.org/software/make/)                     | 3.81+    | Build orchestration                                                               |
+| [mise](https://mise.jdx.dev/)                                      | latest   | Tool version manager — bootstrapped by `make deps`; reads `.nvmrc` + `.mise.toml` |
+| [Node.js](https://nodejs.org/)                                     | 24+      | JavaScript runtime (mise, via `.nvmrc`)                                           |
+| [pnpm](https://pnpm.io/)                                           | 10.33.0+ | Package manager (mise, via `.mise.toml`)                                          |
+| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17.1+  | Dapr sidecar management (mise, via `.mise.toml`)                                  |
+| [act](https://github.com/nektos/act)                               | 0.2.87+  | Run GitHub Actions locally (mise, via `.mise.toml`)                               |
+| [Trivy](https://trivy.dev/)                                        | 0.69.3+  | Filesystem CVE/secret/misconfig scanner (mise, via `.mise.toml`)                  |
+| [gitleaks](https://github.com/gitleaks/gitleaks)                   | 8.30.1+  | Secret scanner (mise, via `.mise.toml`)                                           |
+| [hadolint](https://github.com/hadolint/hadolint)                   | 2.14.0+  | Dockerfile linter, invoked by `make lint` (mise, via `.mise.toml`)                |
+| [Podman](https://podman.io/)                                       | latest   | Container runtime for PostgreSQL/Redis                                            |
+| [Git](https://git-scm.com/)                                        | latest   | Version control                                                                   |
 
 Install all required dependencies:
 
@@ -292,16 +294,12 @@ Run `make help` to see all targets in one list.
 
 ### Setup & Dependencies
 
-| Target               | Description                                                                                         |
-| -------------------- | --------------------------------------------------------------------------------------------------- |
-| `make help`          | List all available tasks                                                                            |
-| `make deps`          | Bootstrap mise (once) and install node/pnpm (from `.nvmrc` + `.mise.toml`); check podman, dapr, git |
-| `make deps-act`      | Install act for local CI (GitHub Actions runner)                                                    |
-| `make deps-trivy`    | Install Trivy for filesystem security scanning                                                      |
-| `make deps-gitleaks` | Install gitleaks for secret scanning                                                                |
-| `make deps-hadolint` | Install hadolint for Dockerfile linting                                                             |
-| `make install`       | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                  |
-| `make clean`         | Remove build artifacts and node_modules                                                             |
+| Target         | Description                                                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make help`    | List all available tasks                                                                                                                                   |
+| `make deps`    | Bootstrap mise (once) and install every pinned tool (node from `.nvmrc`; pnpm, act, dapr, gitleaks, hadolint, trivy from `.mise.toml`); check podman + git |
+| `make install` | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                                                                         |
+| `make clean`   | Remove build artifacts and node_modules                                                                                                                    |
 
 ### Build & Quality
 

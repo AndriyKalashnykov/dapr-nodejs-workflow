@@ -4,36 +4,27 @@
 # /bin/sh on Ubuntu, rejects it). Required by the mermaid-lint target.
 SHELL := /bin/bash
 
-# Ensure tools installed to $HOME/.local/bin (act, trivy, gitleaks) are on PATH
-# for every recipe — needed inside the act runner container where this path is
-# not preconfigured. Exported so every sub-shell the recipes spawn inherits it.
-export PATH := $(HOME)/.local/bin:$(PATH)
+# mise itself installs to $HOME/.local/bin/mise via the https://mise.run
+# bootstrap; its shims (where act, dapr, gitleaks, hadolint, trivy live) are in
+# $HOME/.local/share/mise/shims. Export both so recipes find mise-managed tools
+# regardless of whether the user has `mise activate` in their shell — also
+# needed inside the act runner container where neither path is preconfigured.
+export PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
 
 APP_NAME       := dapr-nodejs-workflow
 CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 PORT ?= 3000
 
 # --- Pinned tool versions ---
-# Node + pnpm are managed by mise (see .mise.toml and .nvmrc).
-# Single source of truth: .nvmrc — see /makefile skill §3 (file-based derivation).
-# mise reads .nvmrc natively for Node and .mise.toml for pnpm; no NVM_VERSION
-# pin or nvm install branch — per skill §"Version Manager Policy (BLOCKING)".
+# Language toolchains + CLI tools (node, pnpm, act, dapr, gitleaks, hadolint,
+# trivy) live in .mise.toml / .nvmrc — one source of truth, tracked natively by
+# Renovate's mise manager. Only Docker-image tags and the Dapr *runtime* version
+# (not a mise-installable CLI) are pinned here.
 NODE_VERSION     := $(shell cat .nvmrc 2>/dev/null || echo 24)
-# renovate: datasource=github-releases depName=nektos/act
-ACT_VERSION      := 0.2.87
-# renovate: datasource=github-releases depName=dapr/cli
-DAPR_CLI_VERSION := 1.17.1
 # renovate: datasource=github-releases depName=dapr/dapr
 DAPR_RUNTIME_VERSION := 1.17.5
-# renovate: datasource=github-releases depName=aquasecurity/trivy
-TRIVY_VERSION    := 0.69.3
-# renovate: datasource=github-releases depName=gitleaks/gitleaks
-GITLEAKS_VERSION := 8.30.1
-# renovate: datasource=github-releases depName=hadolint/hadolint
-HADOLINT_VERSION := 2.14.0
 # renovate: datasource=docker depName=minlag/mermaid-cli
 MERMAID_CLI_VERSION := 11.12.0
-
 # renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
 ZAP_VERSION      := 2.17.0
 
@@ -52,10 +43,11 @@ help:
 	@echo "Commands :"
 	@grep -E '[a-zA-Z\.\-]+:.*?@ .*$$' $(MAKEFILE_LIST)| tr -d '#' | awk 'BEGIN {FS = ":.*?@ "}; {printf "\033[32m%-28s\033[0m - %s\n", $$1, $$2}'
 
-#deps: @ Check and install required dependencies (node + pnpm via mise; podman, dapr, git)
+#deps: @ Check and install required dependencies (mise-managed toolchain + CLIs; podman, git)
 deps:
 	@echo "Checking dependencies..."
-	@# mise bootstraps Node (from .nvmrc) + pnpm (from .mise.toml) in one step.
+	@# mise bootstraps every pinned tool in one step: Node (from .nvmrc), pnpm,
+	@# act, dapr, gitleaks, hadolint, trivy (all from .mise.toml).
 	@# CI runners use jdx/mise-action to install mise; local dev bootstraps it here.
 	@if [ -z "$$CI" ] && ! command -v mise >/dev/null 2>&1; then \
 		echo "Installing mise (no root required, installs to ~/.local/bin)..."; \
@@ -76,59 +68,11 @@ deps:
 		command -v podman >/dev/null 2>&1 || { \
 			echo "ERROR: Podman is required. Install from https://podman.io/getting-started/installation"; exit 1; \
 		}; \
-		command -v dapr >/dev/null 2>&1 || { echo "Installing Dapr CLI v$(DAPR_CLI_VERSION)..."; \
-			curl -fsSL https://raw.githubusercontent.com/dapr/cli/v$(DAPR_CLI_VERSION)/install/install.sh | /bin/bash -s $(DAPR_CLI_VERSION); \
-		}; \
 	fi
 	@command -v git >/dev/null 2>&1 || { \
 		echo "ERROR: Git is required. Install from https://git-scm.com/downloads"; exit 1; \
 	}
 	@echo "All dependencies checked."
-
-#deps-act: @ Install act for local CI (GitHub Actions runner)
-deps-act: deps
-	@command -v act >/dev/null 2>&1 || { echo "Installing act v$(ACT_VERSION)..."; \
-		mkdir -p $$HOME/.local/bin; \
-		curl -fsSL https://raw.githubusercontent.com/nektos/act/v$(ACT_VERSION)/install.sh | bash -s -- -b $$HOME/.local/bin v$(ACT_VERSION); \
-	}
-
-#deps-hadolint: @ Install hadolint for Dockerfile linting
-deps-hadolint:
-	@command -v hadolint >/dev/null 2>&1 || { echo "Installing hadolint v$(HADOLINT_VERSION)..."; \
-		mkdir -p $$HOME/.local/bin; \
-		OS=$$(uname | tr '[:upper:]' '[:lower:]'); \
-		ARCH=$$(uname -m); \
-		case "$$OS-$$ARCH" in \
-			linux-x86_64)  SUFFIX=Linux-x86_64 ;; \
-			linux-aarch64) SUFFIX=Linux-arm64 ;; \
-			darwin-x86_64) SUFFIX=Darwin-x86_64 ;; \
-			darwin-arm64)  SUFFIX=Darwin-x86_64 ;; \
-			*) echo "ERROR: unsupported platform $$OS-$$ARCH"; exit 1 ;; \
-		esac; \
-		curl -sSfL -o /tmp/hadolint "https://github.com/hadolint/hadolint/releases/download/v$(HADOLINT_VERSION)/hadolint-$$SUFFIX"; \
-		install -m 755 /tmp/hadolint $$HOME/.local/bin/hadolint; \
-		rm -f /tmp/hadolint; \
-	}
-
-#deps-trivy: @ Install Trivy for filesystem security scanning
-deps-trivy:
-	@command -v trivy >/dev/null 2>&1 || { echo "Installing trivy v$(TRIVY_VERSION)..."; \
-		mkdir -p $$HOME/.local/bin; \
-		curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b $$HOME/.local/bin v$(TRIVY_VERSION); \
-	}
-
-#deps-gitleaks: @ Install gitleaks for secret scanning
-deps-gitleaks:
-	@command -v gitleaks >/dev/null 2>&1 || { echo "Installing gitleaks v$(GITLEAKS_VERSION)..."; \
-		mkdir -p $$HOME/.local/bin; \
-		OS=$$(uname | tr '[:upper:]' '[:lower:]'); \
-		ARCH=$$(uname -m); \
-		case "$$ARCH" in x86_64) ARCH=x64;; aarch64|arm64) ARCH=arm64;; esac; \
-		curl -sfL -o /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v$(GITLEAKS_VERSION)/gitleaks_$(GITLEAKS_VERSION)_$${OS}_$${ARCH}.tar.gz" && \
-		tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks && \
-		install -m 755 /tmp/gitleaks $$HOME/.local/bin/gitleaks && \
-		rm -f /tmp/gitleaks.tar.gz /tmp/gitleaks; \
-	}
 
 #clean: @ Remove build artifacts and node_modules
 clean:
@@ -151,7 +95,7 @@ format-check: install
 	@pnpm exec prettier --check .
 
 #lint: @ Run Prettier check, ESLint, TypeScript noEmit, and hadolint
-lint: install deps-hadolint
+lint: install
 	@pnpm exec prettier --check .
 	@pnpm exec eslint --max-warnings 0 src/
 	@pnpm exec tsc --noEmit
@@ -162,11 +106,11 @@ vulncheck: install
 	@pnpm audit --audit-level=moderate
 
 #secrets: @ Scan for hardcoded secrets with gitleaks
-secrets: deps-gitleaks
+secrets: deps
 	@gitleaks detect --source . --verbose --redact --no-banner
 
 #trivy-fs: @ Scan filesystem for vulnerabilities, secrets, and misconfigurations
-trivy-fs: deps-trivy
+trivy-fs: deps
 	@trivy fs --scanners vuln,secret,misconfig --severity CRITICAL,HIGH .
 
 #deps-prune: @ Show unused/redundant Node.js dependencies
@@ -510,7 +454,7 @@ dast: image-build
 	@echo "DAST report: $$(pwd)/zap-output/zap-report.html"
 
 #ci-run-tag: @ Run GitHub Actions workflow locally with a tag event (exercises docker job)
-ci-run-tag: deps-act
+ci-run-tag: deps
 	@docker container prune -f 2>/dev/null || true
 	@TAG="$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"; \
 		echo '{"ref":"refs/tags/'"$$TAG"'"}' > /tmp/act-tag-event.json
@@ -565,7 +509,7 @@ ci: static-check test build
 	@echo "Local CI pipeline passed."
 
 #ci-run: @ Run GitHub Actions workflow locally using act (simulates branch push)
-ci-run: deps-act
+ci-run: deps
 	@docker container prune -f 2>/dev/null || true
 	@# Force a branch-push event so act doesn't pick up a tag on HEAD. Without
 	@# this, running `ci-run` on a tagged commit triggers the tag-gated docker
@@ -585,7 +529,7 @@ renovate: deps
 renovate-validate: deps
 	@npx --yes renovate --platform=local
 
-.PHONY: help deps deps-act deps-trivy deps-gitleaks deps-hadolint clean install build format format-check \
+.PHONY: help deps clean install build format format-check \
 	lint vulncheck secrets trivy-fs deps-prune deps-prune-check static-check \
 	test test-watch integration-test smoke check update upgrade \
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
