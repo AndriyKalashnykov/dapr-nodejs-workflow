@@ -58,6 +58,7 @@ make start         # build and start API server with Dapr sidecar (foreground)
 | [act](https://github.com/nektos/act)                               | 0.2.87+  | Run GitHub Actions locally (optional, installed by `make deps-act`)                                        |
 | [Trivy](https://trivy.dev/)                                        | 0.69.3+  | Filesystem CVE/secret/misconfig scanner (installed by `make deps-trivy`)                                   |
 | [gitleaks](https://github.com/gitleaks/gitleaks)                   | 8.30.1+  | Secret scanner (installed by `make deps-gitleaks`)                                                         |
+| [hadolint](https://github.com/hadolint/hadolint)                   | 2.14.0+  | Dockerfile linter (installed by `make deps-hadolint`, invoked by `make lint`)                              |
 
 Install all required dependencies:
 
@@ -202,15 +203,20 @@ make down          # stop PostgreSQL + Redis containers
 
 ### Example: trigger a workflow
 
-```bash
-# Schedule
-curl -X POST http://localhost:3000/process-payload \
-  -H "Content-Type: application/json" \
-  -d '{"name": "John Doe", "data": {"key1": "value1"}}'
-# -> {"message":"...","id":"82236756-4f38-4b5f-9796-a1268184561e"}
+Capture the generated workflow id into a shell variable so every subsequent poll reuses it:
 
-# Poll (while 30s delay activity is running)
-curl http://localhost:3000/workflow/82236756-4f38-4b5f-9796-a1268184561e/status | jq .
+```bash
+# Schedule and capture the id in one shot
+WF_ID=$(curl -s -X POST http://localhost:3000/process-payload \
+  -H "Content-Type: application/json" \
+  -d '{"name": "John Doe", "data": {"key1": "value1"}}' \
+  | jq -r .id)
+
+echo "$WF_ID"
+# -> 82236756-4f38-4b5f-9796-a1268184561e
+
+# Poll (while the 30s delay activity is running)
+curl -s "http://localhost:3000/workflow/$WF_ID/status" | jq .
 ```
 
 While running:
@@ -234,6 +240,15 @@ After completion (`output` is present):
   "createdAt": "2026-04-16T16:34:44.118Z",
   "lastUpdatedAt": "2026-04-16T16:35:21.199Z"
 }
+```
+
+Poll until done using the same variable:
+
+```bash
+until curl -s "http://localhost:3000/workflow/$WF_ID/status" | jq -e '.status == "COMPLETED"' > /dev/null; do
+  sleep 2
+done
+curl -s "http://localhost:3000/workflow/$WF_ID/status" | jq .
 ```
 
 ## Testing
