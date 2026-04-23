@@ -149,7 +149,7 @@ jobs:
     services:
       # renovate: datasource=docker depName=postgres
       postgres:
-        image: postgres:18-alpine@sha256:52098013b4b64a746626437d38afc03cabff6cdeb4d3d92e2342aa95f0ce56ea
+        image: postgres:18-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -234,7 +234,7 @@ jobs:
     services:
       # renovate: datasource=docker depName=postgres
       postgres:
-        image: postgres:18-alpine@sha256:52098013b4b64a746626437d38afc03cabff6cdeb4d3d92e2342aa95f0ce56ea
+        image: postgres:18-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -404,7 +404,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: dapr-nodejs-workflow:scan
           scanners: "vuln,secret,misconfig"
