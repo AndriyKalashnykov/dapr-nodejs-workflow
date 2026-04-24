@@ -15,7 +15,7 @@ importers:
     dependencies:
       '@dapr/dapr':
         specifier: ^3.6.1
-        version: 3.6.1
+        version: 3.17.0
       axios:
         specifier: ^1.15.0
         version: 1.15.0
@@ -65,11 +65,33 @@ importers:
 
 packages:
 
-  '@dapr/dapr@3.6.1':
-    resolution: {integrity: sha512-qRV9dub98RTPZcPzdl7KehlyN+0dC0+NVJb4Vj18KhVWdKKgWRjVrDkA1/3i0hoacxbi28o+qjUw2NVx713YKQ==}
+  '@bufbuild/protobuf@2.12.0':
+    resolution: {integrity: sha512-B/XlCaFIP8LOwzo+bz5uFzATYokcwCKQcghqnlfwSmM5eX/qTkvDBnDPs+gXtX/RyjxJ4DRikECcPJbyALA8FA==}
 
-  '@dapr/durabletask-js@0.1.0-alpha.2':
-    resolution: {integrity: sha512-ZPtRf9S5SVf3fRKMGNSwPwVT8s5JjEPrxaGkw0i0JPWKN9JXFHvAX/M9kWULhSGZCSPhvAgusMT0lAKUgRlpkg==}
+  '@connectrpc/connect-node@2.1.1':
+    resolution: {integrity: sha512-s3TfsI1XF+n+1z6MBS9rTnFsxxR4Rw5wmdEnkQINli81ESGxcsfaEet8duzq8LVuuCupmhUsgpRo0Nv9pZkufg==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
+      '@connectrpc/connect': 2.1.1
+
+  '@connectrpc/connect-web@2.1.1':
+    resolution: {integrity: sha512-J8317Q2MaFRCT1jzVR1o06bZhDIBmU0UAzWx6xOIXzOq8+k71/+k7MUF7AwcBUX+34WIvbm5syRgC5HXQA8fOg==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
+      '@connectrpc/connect': 2.1.1
+
+  '@connectrpc/connect@2.1.1':
+    resolution: {integrity: sha512-JzhkaTvM73m2K1URT6tv53k2RwngSmCXLZJgK580qNQOXRzZRR/BCMfZw3h+90JpnG6XksP5bYT+cz0rpUzUWQ==}
+    peerDependencies:
+      '@bufbuild/protobuf': ^2.7.0
+
+  '@dapr/dapr@3.17.0':
+    resolution: {integrity: sha512-DeDENM0FZb/FmrHSKPMUjTBXdcJ0vaZbrE4PdLujCbiHOeMgzzSSdD520BQG+GlPGgOlzP8HnptSvNuUypyl0w==}
+    engines: {node: '>=18.0.0'}
+
+  '@dapr/durabletask-js@1.0.0':
+    resolution: {integrity: sha512-ZcU5JO+I+HF/gIkJmduvh5DfclGRevZNHVMuFc1+7X6eywCYxgtn5vqeitC/ER7QrN7T6MLm7Jf0r+HcOQNSIQ==}
 
   '@emnapi/core@1.9.2':
     resolution: {integrity: sha512-UC+ZhH3XtczQYfOlu3lNEkdW/p4dsJ1r/bP7H8+rhao3TTTMO1ATq/4DdIi23XuGoFY+Cz0JmCbdVl0hz9jZcA==}
@@ -1535,9 +1557,29 @@ packages:
 
 snapshots:
 
-  '@dapr/dapr@3.6.1':
+  '@bufbuild/protobuf@2.12.0': {}
+
+  '@connectrpc/connect-node@2.1.1(@bufbuild/protobuf@2.12.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.12.0))':
     dependencies:
-      '@dapr/durabletask-js': 0.1.0-alpha.2
+      '@bufbuild/protobuf': 2.12.0
+      '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.12.0)
+
+  '@connectrpc/connect-web@2.1.1(@bufbuild/protobuf@2.12.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.12.0))':
+    dependencies:
+      '@bufbuild/protobuf': 2.12.0
+      '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.12.0)
+
+  '@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.12.0)':
+    dependencies:
+      '@bufbuild/protobuf': 2.12.0
+
+  '@dapr/dapr@3.17.0':
+    dependencies:
+      '@bufbuild/protobuf': 2.12.0
+      '@connectrpc/connect': 2.1.1(@bufbuild/protobuf@2.12.0)
+      '@connectrpc/connect-node': 2.1.1(@bufbuild/protobuf@2.12.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.12.0))
+      '@connectrpc/connect-web': 2.1.1(@bufbuild/protobuf@2.12.0)(@connectrpc/connect@2.1.1(@bufbuild/protobuf@2.12.0))
+      '@dapr/durabletask-js': 1.0.0
       '@grpc/grpc-js': 1.14.3
       '@js-temporal/polyfill': 0.3.0
       '@types/google-protobuf': 3.15.12
@@ -1551,7 +1593,7 @@ snapshots:
       - encoding
       - supports-color
 
-  '@dapr/durabletask-js@0.1.0-alpha.2':
+  '@dapr/durabletask-js@1.0.0':
     dependencies:
       '@grpc/grpc-js': 1.14.3
       google-protobuf: 3.21.4
