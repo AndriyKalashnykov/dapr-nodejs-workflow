@@ -21,9 +21,10 @@ make start               # Terminal 2: build and start API server with Dapr side
 make check-workflow      # Trigger a test workflow and poll the result
 make check-db            # Run the database health check endpoint
 
-# Run tests
-make test                # Unit tests (Vitest)
-make integration-test    # Integration tests (requires running Dapr stack)
+# Run tests (three-layer pyramid)
+make test                # Unit tests (Vitest, seconds)
+make integration-test    # Integration tests with running Dapr stack (tens of seconds)
+make e2e                 # End-to-end against the production Docker image (minutes)
 
 # Stop everything
 make stop                # Stop Dapr sidecar and API server
@@ -105,7 +106,7 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | `make ci-run-tag`             | Run the workflow via `act` with a tag event (exercises the docker job)  |
 | `make release VERSION=vX.Y.Z` | Tag and push a release                                                  |
 
-The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker-verify-manifest` Makefile targets exist exclusively for the GitHub Actions `integration` and `docker` jobs and are not intended for local use — use `make up` + `make start` (integration) or `make dast` / `make e2e` / `make image-*` (image workflow) locally instead.
+The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker-verify-manifest` Makefile targets exist exclusively for the GitHub Actions `integration-test` and `docker` jobs and are not intended for local use — use `make up` + `make start` (integration) or `make dast` / `make e2e` / `make image-*` (image workflow) locally instead.
 
 ### Docker & Image
 
@@ -215,23 +216,24 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 
 The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, and is reusable via `workflow_call`. Jobs:
 
-- **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + hadolint + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck + `components-check` (local vs CI Dapr component drift gate) — single composite quality gate
+- **changes**: lightweight detector job using `dorny/paths-filter` that emits `code=true` for code changes and `code=false` for doc-only changes (`*.md`, `docs/**`, image assets, etc., with `CLAUDE.md` re-included as project config). Heavy jobs gate on `needs.changes.outputs.code == 'true'`, so doc-only PRs skip them and `ci-pass` reports green via skipped-jobs (compatible with the active Repository Ruleset's required-check gate). Replaces trigger-level `paths-ignore`, which deadlocks against Rulesets.
+- **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + hadolint + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck + `components-check` (local vs CI Dapr component drift gate) + `mermaid-lint` — single composite quality gate
 - **build**: `make build` + `make smoke` (HTTP smoke test against the built server, no Dapr)
 - **test**: `make test` (Vitest unit tests — activity unit tests, supertest-based HTTP tests, `checkPort` helper)
 - **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling (shallow e2e; no Dapr sidecar)
 - **e2e-dapr**: `make ci-seed-db` + builds the image + `./e2e/e2e-dapr.sh` (PostgreSQL service container, Dapr CLI, production image running alongside `dapr run` sidecar). Verifies a real workflow COMPLETES end-to-end with `processed:true` + `dbData` from the Postgres binding. Skipped under act (`vars.ACT=true`).
-- **integration**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make integration-test` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests; covers 404, 400, COMPLETED happy path with `delayMs:0`). Skipped under act (`vars.ACT=true`) because service containers aren't supported.
+- **integration-test**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make integration-test` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests; covers 404, 400, COMPLETED happy path with `delayMs:0`). Skipped under act (`vars.ACT=true`) because service containers aren't supported.
 - **dast**: `make docker-smoke-test` + `make dast-scan` — rebuilds the production image via `cache-from: type=gha` (≈10s cache hit from the `docker` job), starts it, runs OWASP ZAP baseline scan against `localhost:3100`, uploads the ZAP report as an artifact. Skipped under act (`vars.ACT=true`) because ZAP's docker-in-docker bind mount doesn't round-trip through the host Docker daemon.
 - **docker**: runs on every push in parallel with `e2e` and `dast`. Gates 1–3 (single-arch build, Trivy image scan CRITICAL/HIGH blocking, boot-marker smoke test via `make docker-smoke-test`) and Gate 4 (multi-arch build via `docker/build-push-action`) always run — catches arm64 cross-compile regressions and cosign installer breakage on the commit that introduced them. On tag pushes only, step-level `if: startsWith(github.ref, 'refs/tags/')` gates `Log in to GHCR`, `push: ${{ ... }}` on the multi-arch build, `Verify multi-arch manifest` via `make docker-verify-manifest`, `Install cosign`, and `Sign image with cosign` (Sigstore keyless OIDC signing by digest). Buildkit in-manifest attestations (`provenance`/`sbom`) are explicitly disabled to keep the image index clean of `unknown/unknown` platform entries so GHCR's Packages UI renders the "OS / Arch" tab.
 - **ci-pass**: gate job — runs after all upstream jobs and fails if any of them failed; intended as the single status check for branch protection
 
-Job dependencies: `static-check` -> `build` + `test` (parallel) -> `e2e` + `e2e-dapr` + `integration` + `dast` + `docker` (all five parallel; `e2e`/`e2e-dapr`/`integration`/`dast` need `[build, test]`, `docker` needs `[static-check, build, test]`) -> `ci-pass`.
+Job dependencies: `changes` -> `static-check` -> `build` + `test` (parallel) -> `e2e` + `e2e-dapr` + `integration-test` + `dast` + `docker` (all five parallel; `e2e`/`e2e-dapr`/`integration-test`/`dast` need `[changes, build, test]`, `docker` needs `[changes, static-check, build, test]`) -> `ci-pass` (lists every upstream job including `changes` in its `needs:`).
 
 CI uses `--frozen-lockfile` for reproducible builds. The Makefile sets `PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)`, so `make install` automatically picks the right mode based on the `CI` environment variable.
 
 A second workflow, `.github/workflows/cleanup-runs.yml`, runs weekly to delete old workflow runs and stale caches via the native `gh` CLI (no third-party actions).
 
-**Local CI**: `make ci` runs `static-check` (which internally runs `format-check` via `lint`), `test`, and `build` locally. `make ci-run` runs the GitHub Actions workflow via `act`. The `integration` job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make integration-test` instead.
+**Local CI**: `make ci` runs `static-check` (which internally runs `format-check` via `lint`), `test`, and `build` locally. `make ci-run` runs the GitHub Actions workflow via `act` (its event payload includes `repository.default_branch` so `dorny/paths-filter` resolves the diff base correctly). The `integration-test` job requires service containers not supported by `act`; test integration locally with `make up` + `make start` + `make integration-test` instead.
 
 ## Key Environment Variables
 
