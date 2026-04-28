@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
       - name: Filter changed paths
         id: filter
-        uses: dorny/paths-filter@6852f92c20ea7fd3b0c25de3b5112db3a98da050 # v3.0.2
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
           filters: |
             code:
