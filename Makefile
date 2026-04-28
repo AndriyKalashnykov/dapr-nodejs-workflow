@@ -22,7 +22,7 @@ PORT ?= 3000
 # (not a mise-installable CLI) are pinned here.
 NODE_VERSION     := $(shell cat .nvmrc 2>/dev/null || echo 24)
 # renovate: datasource=github-releases depName=dapr/dapr
-DAPR_RUNTIME_VERSION := 1.17.5
+DAPR_RUNTIME_VERSION := 1.17.6
 # renovate: datasource=docker depName=minlag/mermaid-cli
 MERMAID_CLI_VERSION := 11.12.0
 # renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
