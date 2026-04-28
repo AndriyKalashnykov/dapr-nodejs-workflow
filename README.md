@@ -95,7 +95,7 @@ C4Container
 - **Express API** + **WorkflowRuntime** run in the same Node process. The API handlers are thin — they schedule workflows via `DaprWorkflowClient` over gRPC, and the sidecar's scheduler streams activity work items back to the runtime over the same gRPC connection.
 - **Dapr Sidecar** (`daprd`, pinned to 1.17.5 via `DAPR_RUNTIME_VERSION`) is the orchestrator. All state persistence, activity dispatch, and component I/O go through it.
 - **Redis** stores durable workflow state. Killing the app container mid-run and restarting it replays the workflow from Redis-persisted state — verified end-to-end by `make e2e-durability`.
-- **PostgreSQL** is _not_ used directly by the app. The `fetchPostgresDataActivity` POSTs a SQL query to the sidecar's binding HTTP API; the sidecar resolves it via the `bindings.postgres` component and returns rows.
+- **PostgreSQL** is _not_ used directly by the app. The `fetchPostgresDataActivity` POSTs a SQL query to the sidecar's binding HTTP API; the sidecar resolves it via the `bindings.postgres` component and returns rows. See [ADR-0001: Query PostgreSQL via Dapr binding](docs/adr/0001-postgres-via-dapr-binding.md) for the rationale.
 
 ### Workflow Sequence — `POST /process-payload` through `GET /workflow/:id/status`
 
@@ -135,6 +135,57 @@ sequenceDiagram
 ```
 
 The `delayActivity` step defaults to 30 s (simulating a long-running request); tests and `e2e-dapr` override it to 0 via the request body. While a workflow is mid-flight, `GET /workflow/:id/status` returns `RUNNING`; once all activities complete, the same endpoint returns `COMPLETED` with the enriched JSON payload.
+
+### Workflow Durability — Replay After Crash
+
+Validated end-to-end by `make e2e-durability`: the workflow is scheduled with a 15 s delay, the app container is killed mid-flight, restarted, and the workflow still completes with the full enriched payload (including the Postgres binding result) — replayed from Redis-persisted state.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as Test Driver
+  participant A as Express API<br/>(killed, then restarted)
+  participant D as Dapr Sidecar<br/>(survives restart)
+  participant R as Redis
+
+  U->>A: POST /process-payload { delayMs: 15000 }
+  A->>D: scheduleNewWorkflow
+  D->>R: persist workflow state
+  D-->>A: workflow id
+  A-->>U: 202 { id }
+
+  D->>A: delayActivity(15000)
+  Note over A: ⏱  activity in flight
+
+  rect rgb(255,235,235)
+    Note over U,A: Test kills the app container at t≈5s
+    U-x A: docker kill
+  end
+
+  rect rgb(235,250,235)
+    Note over U,A: Test restarts the app container — sidecar untouched
+    U->>A: docker run (same image)
+    A->>D: re-register WorkflowRuntime (gRPC)
+  end
+
+  Note over D,R: Sidecar resumes from Redis state, replays remaining activities
+  D->>A: delayActivity (resumed)
+  A-->>D: ok
+  D->>A: modifyPayloadActivity
+  A-->>D: enriched payload
+  D->>A: fetchPostgresDataActivity
+  A->>D: POST /v1.0/bindings/postgres-db
+  D-->>A: dbData
+  A-->>D: dbData
+  D->>R: persist final state
+
+  U->>A: GET /workflow/:id/status
+  A->>D: getWorkflowState
+  D-->>A: COMPLETED + output (processed:true, dbData)
+  A-->>U: 200 { status: "COMPLETED", output }
+```
+
+The Dapr sidecar is left running across the kill — only the app container is replaced. This mirrors the production failure mode where an app pod crashes and is rescheduled while the sidecar (or its replacement) keeps Redis state durable.
 
 ### Service Ports
 
@@ -286,7 +337,7 @@ make ci            # run static-check, test, build locally
 make ci-run        # run GitHub Actions workflow locally via act (requires Docker)
 ```
 
-> The `integration` GitHub Actions job uses service containers not supported by `act`. Test integration locally with the steps above.
+> The `integration-test` GitHub Actions job uses service containers not supported by `act`. Test integration locally with the steps above.
 
 ## Available Make Targets
 
@@ -385,17 +436,18 @@ Run `make help` to see all targets in one list.
 
 GitHub Actions runs on every push to `main`, version tags (`v*`), and pull requests. The workflow is reusable via `workflow_call`.
 
-| Job              | Depends on                | Steps                                                                                                                                                                             |
-| ---------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **static-check** | —                         | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check, mermaid-lint)                           |
-| **build**        | static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                            |
-| **test**         | static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                     |
-| **e2e**          | build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                   |
-| **e2e-dapr**     | build, test               | `make ci-seed-db` + build image + `./e2e/e2e-dapr.sh` (production image alongside `dapr run` sidecar, asserts workflow COMPLETES). Skipped under act.                             |
-| **integration**  | build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make integration-test` (PostgreSQL service container + Dapr CLI 1.17.1). Skipped under act.                               |
-| **dast**         | build, test               | Build image via `cache-from: type=gha`, `make docker-smoke-test`, cached ZAP image, `make dast-scan`, upload report artifact. Skipped under act.                                  |
-| **docker**       | static-check, build, test | Runs every push in parallel with `e2e`/`dast`; gates 1–4 (build + Trivy + smoke + multi-arch build) always run, registry push + cosign signing are tag-gated (`v*`) at step level |
-| **ci-pass**      | all of the above          | Gate job: fails if any upstream job failed                                                                                                                                        |
+| Job                  | Depends on                         | Steps                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **changes**          | —                                  | `dorny/paths-filter` detector — emits `code=true` for code changes, `code=false` for doc-only (`*.md`, `docs/**`, image assets; `CLAUDE.md` is re-included as project config). All heavy jobs gate on this output, so doc-only PRs skip them and `ci-pass` reports green via skipped-jobs. Replaces trigger-level `paths-ignore` (Rulesets-incompatible). |
+| **static-check**     | changes                            | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check, mermaid-lint)                                                                                                                                                                                                   |
+| **build**            | changes, static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                                                                                                                                                                                                    |
+| **test**             | changes, static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                                                                                                                                                                                             |
+| **e2e**              | changes, build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                                                                                                                                                                                           |
+| **e2e-dapr**         | changes, build, test               | `make ci-seed-db` + build image + `./e2e/e2e-dapr.sh` (production image alongside `dapr run` sidecar, asserts workflow COMPLETES). Skipped under act.                                                                                                                                                                                                     |
+| **integration-test** | changes, build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make integration-test` (PostgreSQL service container + Dapr CLI 1.17.1). Skipped under act.                                                                                                                                                                                                       |
+| **dast**             | changes, build, test               | Build image via `cache-from: type=gha`, `make docker-smoke-test`, cached ZAP image, `make dast-scan`, upload report artifact. Skipped under act.                                                                                                                                                                                                          |
+| **docker**           | changes, static-check, build, test | Runs every push in parallel with `e2e`/`dast`; gates 1–4 (build + Trivy + smoke + multi-arch build) always run, registry push + cosign signing are tag-gated (`v*`) at step level                                                                                                                                                                         |
+| **ci-pass**          | all of the above                   | Gate job: fails if any upstream job failed                                                                                                                                                                                                                                                                                                                |
 
 ### Pre-push image hardening
 
@@ -432,9 +484,9 @@ The `cleanup-runs.yml` workflow runs weekly to delete old workflow runs and stal
 
 ### Required Secrets and Variables
 
-| Name  | Type     | Used by           | How to set                                                                                                                                                                                                                                                                         |
-| ----- | -------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACT` | Variable | `integration` job | Set to `true` under [nektos/act](https://github.com/nektos/act) to skip the `integration` job — its PostgreSQL service container and `psql` tooling aren't available inside act. Set via **Settings > Secrets and variables > Actions > Variables tab > New repository variable**. |
+| Name  | Type     | Used by                                     | How to set                                                                                                                                                                                                                                                                            |
+| ----- | -------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACT` | Variable | `integration-test`, `e2e-dapr`, `dast` jobs | Set to `true` under [nektos/act](https://github.com/nektos/act) to skip jobs that need service containers or docker-in-docker bind mounts (`integration-test`, `e2e-dapr`, `dast`). Set via **Settings > Secrets and variables > Actions > Variables tab > New repository variable**. |
 
 `GITHUB_TOKEN` is provisioned automatically by GitHub Actions; no manual setup is needed.
 

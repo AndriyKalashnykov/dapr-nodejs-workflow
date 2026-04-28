@@ -7,7 +7,6 @@
     "dockerfile",
     "docker-compose",
     "mise",
-    "nodenv",
     "custom.regex"
   ],
   "commitMessagePrefix": "chore(all): ",
@@ -18,7 +17,7 @@
   "prHourlyLimit": 0,
   "platformAutomerge": true,
   "automerge": true,
-  "automergeType": "branch",
+  "automergeType": "pr",
   "automergeStrategy": "squash",
   "ignoreTests": false,
   "vulnerabilityAlerts": {

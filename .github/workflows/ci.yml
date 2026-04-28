@@ -4,35 +4,7 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths-ignore:
-      - "*.md"
-      - "!CLAUDE.md"
-      - "docs/**"
-      - "specs/**"
-      - "LICENSE"
-      - ".gitignore"
-      - ".claudeignore"
-      - ".claude/**"
-      - "benchmarks/**"
-      - "**.png"
-      - "**.jpg"
-      - "**.gif"
-      - "**.svg"
   pull_request:
-    paths-ignore:
-      - "*.md"
-      - "!CLAUDE.md"
-      - "docs/**"
-      - "specs/**"
-      - "LICENSE"
-      - ".gitignore"
-      - ".claudeignore"
-      - ".claude/**"
-      - "benchmarks/**"
-      - "**.png"
-      - "**.jpg"
-      - "**.gif"
-      - "**.svg"
   workflow_call:
 
 concurrency:
@@ -41,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read # required for dorny/paths-filter on pull_request events
 
 env:
   # All CLI tool versions (node, pnpm, act, dapr, gitleaks, hadolint, trivy) are
@@ -53,7 +26,33 @@ env:
   ZAP_VERSION: 2.17.0
 
 jobs:
+  changes:
+    # Detects whether the push/PR touches code or only docs. Heavy jobs gate on
+    # `code == 'true'` so doc-only PRs skip them. Replaces trigger-level
+    # `paths-ignore` (which deadlocks against Repository Rulesets — the workflow
+    # is never created → ci-pass never reports → required-check gate blocks
+    # the merge indefinitely).
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Filter changed paths
+        id: filter
+        uses: dorny/paths-filter@6852f92c20ea7fd3b0c25de3b5112db3a98da050 # v3.0.2
+        with:
+          filters: |
+            code:
+              - '!(**.md|docs/**|specs/**|LICENSE|.gitignore|.claudeignore|.claude/**|benchmarks/**|**.png|**.jpg|**.gif|**.svg)'
+              - 'CLAUDE.md'
+
   static-check:
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -82,7 +81,8 @@ jobs:
         run: make static-check
 
   build:
-    needs: [static-check]
+    needs: [changes, static-check]
+    if: needs.changes.outputs.code == 'true'
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -113,7 +113,8 @@ jobs:
         run: make smoke
 
   test:
-    needs: [static-check]
+    needs: [changes, static-check]
+    if: needs.changes.outputs.code == 'true'
     timeout-minutes: 5
     runs-on: ubuntu-latest
 
@@ -140,9 +141,10 @@ jobs:
       - name: Test
         run: make test
 
-  integration:
-    if: ${{ vars.ACT != 'true' }} # service containers and psql aren't available under act
-    needs: [build, test]
+  integration-test:
+    # service containers and psql aren't available under act
+    if: needs.changes.outputs.code == 'true' && vars.ACT != 'true'
+    needs: [changes, build, test]
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -195,7 +197,8 @@ jobs:
         run: make integration-test
 
   e2e:
-    needs: [build, test]
+    needs: [changes, build, test]
+    if: needs.changes.outputs.code == 'true'
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -226,8 +229,8 @@ jobs:
     # Full-stack e2e: runs the production Docker image alongside a real Dapr
     # sidecar, schedules a workflow via HTTP and asserts it COMPLETES with the
     # expected enriched payload. Skipped under act (service containers required).
-    if: ${{ vars.ACT != 'true' }}
-    needs: [build, test]
+    if: needs.changes.outputs.code == 'true' && vars.ACT != 'true'
+    needs: [changes, build, test]
     timeout-minutes: 15
     runs-on: ubuntu-latest
 
@@ -252,9 +255,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
-      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Set up mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
@@ -289,8 +294,8 @@ jobs:
     # starts it via make docker-smoke-test, then runs ZAP baseline. Skipped under
     # nektos/act: ZAP's docker-in-docker bind mount of $GITHUB_WORKSPACE/zap-output
     # doesn't round-trip through the host Docker daemon.
-    if: ${{ vars.ACT != 'true' }}
-    needs: [build, test]
+    if: needs.changes.outputs.code == 'true' && vars.ACT != 'true'
+    needs: [changes, build, test]
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -300,9 +305,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
-      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Build image for scan
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
@@ -360,7 +367,8 @@ jobs:
     # build, gates the tag-only behavior. Non-tag pushes still exercise
     # gates 1-4 (build + Trivy + smoke + multi-arch build) to catch
     # arm64 cross-compile regressions and cosign installer breakage early.
-    needs: [static-check, build, test]
+    needs: [changes, static-check, build, test]
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -374,9 +382,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
-      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Docker metadata
         id: meta
@@ -472,7 +482,18 @@ jobs:
 
   ci-pass:
     if: always()
-    needs: [static-check, build, test, e2e, e2e-dapr, integration, dast, docker]
+    needs:
+      [
+        changes,
+        static-check,
+        build,
+        test,
+        e2e,
+        e2e-dapr,
+        integration-test,
+        dast,
+        docker,
+      ]
     timeout-minutes: 2
     runs-on: ubuntu-latest
     steps:

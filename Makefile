@@ -124,20 +124,30 @@ deps-prune-check: install
 		|| { echo "ERROR: unused dependencies found. Run 'make deps-prune' to see them."; exit 1; }
 
 #mermaid-lint: @ Validate Mermaid diagrams in README.md and CLAUDE.md via pinned mermaid-cli
-mermaid-lint:
-	@command -v docker >/dev/null 2>&1 || { echo "ERROR: docker is required for mermaid-lint"; exit 1; }
+mermaid-lint: deps
 	@set -euo pipefail; \
 	MD_FILES=$$(grep -lF '```mermaid' README.md CLAUDE.md 2>/dev/null || true); \
 	if [ -z "$$MD_FILES" ]; then \
 		echo "No Mermaid blocks found — skipping."; \
 		exit 0; \
 	fi; \
+	IMAGE=minlag/mermaid-cli:$(MERMAID_CLI_VERSION); \
+	for attempt in 1 2 3; do \
+		if $(DOCKER) pull --quiet "$$IMAGE" >/dev/null 2>&1; then break; fi; \
+		if [ "$$attempt" -eq 3 ]; then \
+			echo "ERROR: $(DOCKER) pull $$IMAGE failed after 3 attempts (registry flake or rate limit)"; \
+			exit 1; \
+		fi; \
+		delay=$$((attempt * 5)); \
+		echo "  ! pull failed (attempt $$attempt/3); retrying in $${delay}s..."; \
+		sleep "$$delay"; \
+	done; \
 	FAILED=0; \
 	for md in $$MD_FILES; do \
 		echo "Validating Mermaid blocks in $$md..."; \
 		LOG=$$(mktemp); \
-		if docker run --rm -v "$$PWD:/data" \
-			minlag/mermaid-cli:$(MERMAID_CLI_VERSION) \
+		if $(DOCKER) run --rm -v "$$PWD:/data:ro" \
+			"$$IMAGE" \
 			-i "/data/$$md" -o "/tmp/$$(basename $$md .md).svg" >"$$LOG" 2>&1; then \
 			echo "  ✓ All blocks rendered cleanly."; \
 		else \
@@ -515,7 +525,10 @@ ci-run: deps
 	@# this, running `ci-run` on a tagged commit triggers the tag-gated docker
 	@# publish path (Log in to GHCR / Build and push / cosign) and can push to
 	@# the real registry. Use `ci-run-tag` to explicitly exercise the tag path.
-	@echo '{"ref":"refs/heads/main"}' > /tmp/act-push-event.json
+	@# repository.default_branch is required by dorny/paths-filter on push
+	@# events — without it, the `changes` job errors with "This action requires
+	@# 'base' input to be configured or 'repository.default_branch' to be set".
+	@printf '{"ref":"refs/heads/main","repository":{"default_branch":"main","name":"$(APP_NAME)","full_name":"AndriyKalashnykov/$(APP_NAME)"}}' > /tmp/act-push-event.json
 	@act push \
 		--eventpath /tmp/act-push-event.json \
 		--container-architecture linux/amd64 \
