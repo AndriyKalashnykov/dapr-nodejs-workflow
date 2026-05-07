@@ -1,0 +1,10 @@
+# pnpm v11+ reads `overrides` and `onlyBuiltDependencies` from this file.
+# The legacy `pnpm` block in package.json is silently ignored by pnpm v11,
+# which would drop the security overrides below — see PR #35 regression.
+overrides:
+  path-to-regexp: ">=8.4.0"
+  follow-redirects: ">=1.16.0"
+  protobufjs: ">=7.5.5"
+
+onlyBuiltDependencies:
+  - protobufjs
