@@ -146,6 +146,7 @@ Dockerfile                   Multi-stage production image (distroless, non-root)
 .hadolint.yaml               Hadolint Dockerfile linter configuration
 .mise.toml                   mise tool pins (pnpm); Node pinned via .nvmrc
 .nvmrc                       Node major version; read by mise and actions/setup-node
+pnpm-workspace.yaml          pnpm `overrides` + `onlyBuiltDependencies` (security pins; v11+ ignores the legacy package.json location)
 ```
 
 ### Request Flow
@@ -278,8 +279,8 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 
 ### Known architectural / Renovate gaps
 
-- [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override; monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
-- [ ] `axios` pulls `follow-redirects` (overridden to `>=1.16.0`) — monitor axios for a release that bumps the dep and drops the override
+- [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
+- [ ] `axios` pulls `follow-redirects` (overridden to `>=1.16.0` in `pnpm-workspace.yaml`) — monitor axios for a release that bumps the dep and drops the override
 - [ ] Ubuntu 26.04 LTS shipped Apr 2026 — actively track the GitHub Actions `ubuntu-latest` runner migration (runners transition in stages after the release) and bump any hardcoded `ubuntu-24.04` / `ubuntu-22.04` `runs-on:` pins when the new image is stable
 - [ ] `dapr/setup-dapr@v2` runs on Node 20 (deprecated by GitHub Sep 2026). Upstream last commit 2024-07-01; no `v3` released yet, even `main` uses `node20`. Track [dapr/setup-dapr](https://github.com/dapr/setup-dapr) for an update
 - [ ] `pnpm/action-setup@v5` emits `[DEP0169] url.parse()` deprecation warning in CI logs — upstream issue, will resolve in a future patch
