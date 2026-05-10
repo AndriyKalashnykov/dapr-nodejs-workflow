@@ -127,6 +127,48 @@ describe("workflow end-to-end completion", () => {
     // Postgres binding returns results as an array-of-rows payload (or wrapped).
     // Either shape is acceptable — what matters is the binding round-tripped.
   }, 35_000);
+
+  it("transitions through RUNNING → COMPLETED while a delayActivity is in flight", async () => {
+    const { id } = await scheduleWorkflow({
+      delayMs: 2000,
+      payload: { name: "status-transition" },
+    });
+
+    // Poll quickly: workflow should be RUNNING (delayActivity in flight).
+    await new Promise((r) => setTimeout(r, 200));
+    const midRes = await fetch(`${API_URL}/workflow/${id}/status`);
+    const mid = (await midRes.json()) as StatusResponse;
+    expect(["RUNNING", "PENDING"]).toContain(mid.status);
+
+    const final = await pollUntilCompleted(id, 30_000);
+    expect(final.status).toBe("COMPLETED");
+  }, 35_000);
+
+  // Note: the dbError fold-in branch (`workflow catches activity throw and writes
+  // modifiedPayload.dbError`) cannot be exercised through the public API today —
+  // `POST /process-payload` hardcodes `query: "select * from users"` and ignores
+  // `req.body.query`. Activity-level coverage of the error-envelope shape lives
+  // in src/__tests__/activities.test.ts (5xx and connection-refused branches).
+
+  it("handles 5 workflows scheduled concurrently — each reaches COMPLETED with distinct ids", async () => {
+    const N = 5;
+    const scheduled = await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        scheduleWorkflow({ delayMs: 0, payload: { name: `concurrent-${i}` } }),
+      ),
+    );
+    const ids = scheduled.map((s) => s.id);
+    expect(new Set(ids).size).toBe(N); // all distinct
+
+    const finals = await Promise.all(
+      ids.map((id) => pollUntilCompleted(id, 30_000)),
+    );
+    for (const f of finals) {
+      expect(f.status).toBe("COMPLETED");
+      const out = JSON.parse(f.output ?? "{}") as Record<string, unknown>;
+      expect(out.processed).toBe(true);
+    }
+  }, 60_000);
 });
 
 describe("database integration", () => {

@@ -7,20 +7,34 @@
 
 A Dapr Workflow demo using the [Dapr JS SDK](https://github.com/dapr/js-sdk) with an Express HTTP API. The app schedules durable workflows that query PostgreSQL through Dapr bindings, with Redis as the workflow state backend.
 
-| Component       | Technology                                               |
-| --------------- | -------------------------------------------------------- |
-| Language        | TypeScript 6                                             |
-| Runtime         | Node.js 24                                               |
-| Web framework   | Express 5                                                |
-| Workflow engine | Dapr Workflow via `@dapr/dapr` 3.6                       |
-| State store     | Redis (via Dapr state component)                         |
-| Data binding    | PostgreSQL 18 (via Dapr binding component)               |
-| Container CLI   | Podman (Docker-compatible) + Podman Compose              |
-| Testing         | Vitest 4 (unit + integration)                            |
-| Linting         | ESLint 10 + typescript-eslint 8, hadolint for Dockerfile |
-| Formatting      | Prettier 3                                               |
-| Security        | gitleaks, Trivy filesystem scan, `pnpm audit`            |
-| CI/CD           | GitHub Actions, Renovate, act (local CI)                 |
+## Contents
+
+- [Quick Start](#quick-start)
+- [Prerequisites](#prerequisites)
+- [Architecture](#architecture)
+- [Usage](#usage)
+- [API](#api)
+- [Build & Package](#build--package)
+- [Testing](#testing)
+- [Available Make Targets](#available-make-targets)
+- [CI/CD](#cicd)
+- [Contributing](#contributing)
+- [License](#license)
+
+| Component       | Technology                                                                        |
+| --------------- | --------------------------------------------------------------------------------- |
+| Language        | TypeScript (pinned in `package.json`)                                             |
+| Runtime         | Node.js (LTS major pinned in `.nvmrc`)                                            |
+| Web framework   | Express                                                                           |
+| Workflow engine | Dapr Workflow via `@dapr/dapr` (pinned in `package.json`)                         |
+| State store     | Redis (via Dapr state component, image pinned by digest in `docker-compose.yaml`) |
+| Data binding    | PostgreSQL (via Dapr binding component, image pinned by digest)                   |
+| Container CLI   | Podman (Docker-compatible) + Podman Compose                                       |
+| Testing         | Vitest (unit + integration), shell-driven e2e against the production image        |
+| Linting         | ESLint + typescript-eslint, hadolint for Dockerfile, mermaid-cli for diagrams     |
+| Formatting      | Prettier                                                                          |
+| Security        | gitleaks, Trivy filesystem + image scan, `pnpm audit`, OWASP ZAP DAST             |
+| CI/CD           | GitHub Actions, Renovate, act (local CI), cosign keyless image signing            |
 
 ```mermaid
 C4Context
@@ -48,19 +62,22 @@ make start         # build and start API server with Dapr sidecar (foreground)
 
 Every tool below (except `make`, `podman`, `git`) is pinned in `.mise.toml` / `.nvmrc` and installed in one step by `make deps` (which bootstraps [mise](https://mise.jdx.dev/) if missing).
 
-| Tool                                                               | Version  | Purpose                                                                           |
-| ------------------------------------------------------------------ | -------- | --------------------------------------------------------------------------------- |
-| [GNU Make](https://www.gnu.org/software/make/)                     | 3.81+    | Build orchestration                                                               |
-| [mise](https://mise.jdx.dev/)                                      | latest   | Tool version manager — bootstrapped by `make deps`; reads `.nvmrc` + `.mise.toml` |
-| [Node.js](https://nodejs.org/)                                     | 24+      | JavaScript runtime (mise, via `.nvmrc`)                                           |
-| [pnpm](https://pnpm.io/)                                           | 10.33.0+ | Package manager (mise, via `.mise.toml`)                                          |
-| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | 1.17.1+  | Dapr sidecar management (mise, via `.mise.toml`)                                  |
-| [act](https://github.com/nektos/act)                               | 0.2.87+  | Run GitHub Actions locally (mise, via `.mise.toml`)                               |
-| [Trivy](https://trivy.dev/)                                        | 0.69.3+  | Filesystem CVE/secret/misconfig scanner (mise, via `.mise.toml`)                  |
-| [gitleaks](https://github.com/gitleaks/gitleaks)                   | 8.30.1+  | Secret scanner (mise, via `.mise.toml`)                                           |
-| [hadolint](https://github.com/hadolint/hadolint)                   | 2.14.0+  | Dockerfile linter, invoked by `make lint` (mise, via `.mise.toml`)                |
-| [Podman](https://podman.io/)                                       | latest   | Container runtime for PostgreSQL/Redis                                            |
-| [Git](https://git-scm.com/)                                        | latest   | Version control                                                                   |
+| Tool                                                               | Pinned in    | Purpose                                              |
+| ------------------------------------------------------------------ | ------------ | ---------------------------------------------------- |
+| [GNU Make](https://www.gnu.org/software/make/)                     | system       | Build orchestration                                  |
+| [mise](https://mise.jdx.dev/)                                      | bootstrapped | Tool version manager — reads `.nvmrc` + `.mise.toml` |
+| [Node.js](https://nodejs.org/)                                     | `.nvmrc`     | JavaScript runtime                                   |
+| [pnpm](https://pnpm.io/)                                           | `.mise.toml` | Package manager                                      |
+| [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) | `.mise.toml` | Dapr sidecar management                              |
+| [Renovate](https://docs.renovatebot.com/)                          | `.mise.toml` | Local Renovate dry-run via `make renovate`           |
+| [act](https://github.com/nektos/act)                               | `.mise.toml` | Run GitHub Actions locally                           |
+| [Trivy](https://trivy.dev/)                                        | `.mise.toml` | Filesystem CVE / secret / misconfig scanner          |
+| [gitleaks](https://github.com/gitleaks/gitleaks)                   | `.mise.toml` | Secret scanner                                       |
+| [hadolint](https://github.com/hadolint/hadolint)                   | `.mise.toml` | Dockerfile linter, invoked by `make lint`            |
+| [Podman](https://podman.io/)                                       | system       | Container runtime for PostgreSQL/Redis               |
+| [Git](https://git-scm.com/)                                        | system       | Version control                                      |
+
+> Exact pinned versions live in the source-of-truth files (`.nvmrc`, `.mise.toml`, `package.json`, `docker-compose.yaml`, `Dockerfile`). Renovate keeps them up to date automatically.
 
 Install all required dependencies:
 
@@ -79,21 +96,22 @@ C4Container
   Person(user, "API Consumer")
 
   System_Boundary(sys, "Dapr Node.js Workflow") {
-    Container(api, "Express API", "Node.js 24, TypeScript 6, Express 5", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
-    Container(sidecar, "Dapr Sidecar", "daprd 1.17.5", "Workflow engine, component bindings, state store client")
-    ContainerDb(redis, "Redis", "Redis 8", "Dapr state store — durable workflow state for replay on restart")
-    ContainerDb(postgres, "PostgreSQL", "PostgreSQL 18", "Queried by fetchPostgresDataActivity via Dapr binding")
+    Container(api, "Express API", "Node.js, TypeScript, Express", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
+    Container(sidecar, "Dapr Sidecar", "daprd", "Workflow engine, component bindings, state store client")
+    ContainerDb(redis, "Redis", "Redis", "Dapr state store — durable workflow state for replay on restart")
+    ContainerDb(postgres, "PostgreSQL", "PostgreSQL", "Queried by fetchPostgresDataActivity via Dapr binding")
   }
 
   Rel(user, api, "Schedule / poll workflow", "HTTPS / JSON")
-  Rel(api, sidecar, "Workflow client + runtime", "gRPC :50001")
-  Rel(api, sidecar, "Binding invocation (from activities)", "HTTP :3500")
+  Rel(api, sidecar, "Workflow client + runtime (gRPC :50001)<br/>Binding invocation from activities (HTTP :3500)", "")
   Rel(sidecar, redis, "Persist workflow state", "TCP :6379")
   Rel(sidecar, postgres, "bindings.postgres", "TCP :5432")
+
+  UpdateLayoutConfig($c4ShapeInRow="3")
 ```
 
 - **Express API** + **WorkflowRuntime** run in the same Node process. The API handlers are thin — they schedule workflows via `DaprWorkflowClient` over gRPC, and the sidecar's scheduler streams activity work items back to the runtime over the same gRPC connection.
-- **Dapr Sidecar** (`daprd`, pinned to 1.17.5 via `DAPR_RUNTIME_VERSION`) is the orchestrator. All state persistence, activity dispatch, and component I/O go through it.
+- **Dapr Sidecar** (`daprd`) is the orchestrator. The runtime version is pinned via `DAPR_RUNTIME_VERSION` in the `Makefile` (Renovate-tracked). All state persistence, activity dispatch, and component I/O go through it.
 - **Redis** stores durable workflow state. Killing the app container mid-run and restarting it replays the workflow from Redis-persisted state — verified end-to-end by `make e2e-durability`.
 - **PostgreSQL** is _not_ used directly by the app. The `fetchPostgresDataActivity` POSTs a SQL query to the sidecar's binding HTTP API; the sidecar resolves it via the `bindings.postgres` component and returns rows. See [ADR-0001: Query PostgreSQL via Dapr binding](docs/adr/0001-postgres-via-dapr-binding.md) for the rationale.
 
@@ -189,14 +207,19 @@ The Dapr sidecar is left running across the kill — only the app container is r
 
 ### Service Ports
 
-| Service        | Port  | Protocol | Purpose                          |
-| -------------- | ----- | -------- | -------------------------------- |
-| Express API    | 3000  | HTTP     | REST endpoints                   |
-| Dapr sidecar   | 3500  | HTTP     | Binding calls from activities    |
-| Dapr sidecar   | 50001 | gRPC     | WorkflowClient / WorkflowRuntime |
-| Dapr scheduler | 50006 | gRPC     | Workflow scheduling              |
-| PostgreSQL     | 5432  | TCP      | Database backend                 |
-| Redis          | 6379  | TCP      | Dapr state store                 |
+All ports are exposed as Makefile variables (`make var=value` overrides for non-default deployments) and matching `*_PORT` env vars.
+
+| Service        | Default | Variable              | Protocol | Purpose                                           |
+| -------------- | ------- | --------------------- | -------- | ------------------------------------------------- |
+| Express API    | 3000    | `PORT`                | HTTP     | REST endpoints                                    |
+| Dapr sidecar   | 3500    | `DAPR_HTTP_PORT`      | HTTP     | Binding calls from activities                     |
+| Dapr sidecar   | 50001   | `DAPR_GRPC_PORT`      | gRPC     | WorkflowClient / WorkflowRuntime                  |
+| Dapr scheduler | 50006   | `DAPR_SCHEDULER_PORT` | gRPC     | Workflow scheduling                               |
+| PostgreSQL     | 5432    | `POSTGRES_PORT`       | TCP      | Database backend                                  |
+| Redis          | 6379    | `REDIS_PORT`          | TCP      | Dapr state store                                  |
+| Test image     | 3100    | `TEST_HOST_PORT`      | HTTP     | Host port the prod image binds for `e2e` / `dast` |
+
+The host portion of every URL is `$(HOST)` (default `localhost`), also overridable. The e2e shell scripts (`e2e/e2e-dapr.sh`, `e2e/e2e-durability.sh`) pick free ports from the kernel's ephemeral range when `APP_PORT`/`DAPR_*_PORT` aren't already set, so parallel runs don't collide.
 
 ### Project Layout
 
@@ -304,6 +327,17 @@ done
 curl -s "http://localhost:3000/workflow/$WF_ID/status" | jq .
 ```
 
+## Build & Package
+
+| Stage               | Command            | Output                                                                    | Notes                                                                                    |
+| ------------------- | ------------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Compile TS          | `make build`       | `dist/*.js` + sourcemaps                                                  | Invoked by `make smoke`, `make image-build`, and the CI `build` job                      |
+| Container           | `make image-build` | Local Docker image `dapr-nodejs-workflow:<tag>` (multi-stage, distroless) | Stage 1 deps → Stage 2 build → Stage 2b prod-deps → Stage 3 distroless `nonroot` runtime |
+| Filesystem CVE scan | `make trivy-fs`    | Trivy report (CRITICAL/HIGH blocking)                                     | Part of `make static-check`; CI runs the same in the `static-check` job                  |
+| Image CVE scan      | (CI only)          | Trivy `aquasecurity/trivy-action` report                                  | Runs in the `docker` job before any push, blocks on CRITICAL/HIGH                        |
+
+The image is signed with [cosign](https://github.com/sigstore/cosign) keyless OIDC by digest at tag-push time only — see [CI/CD § Pre-push image hardening](#pre-push-image-hardening) below.
+
 ## Testing
 
 ### Unit Tests
@@ -407,9 +441,9 @@ Run `make help` to see all targets in one list.
 | `make ci`                     | Run local CI pipeline (static-check, test, build; static-check runs lint which runs prettier --check)       |
 | `make ci-run`                 | Run GitHub Actions workflow locally via [act](https://github.com/nektos/act)                                |
 | `make ci-run-tag`             | Run GitHub Actions workflow locally with a tag event (exercises docker job)                                 |
-| `make release VERSION=vX.Y.Z` | Create and push a release tag                                                                               |
+| `make release VERSION=vX.Y.Z` | Validate VERSION format, then run `tag-release` to commit, tag, and push                                    |
 
-> The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker-verify-manifest` Makefile targets are called exclusively from CI (service-container provisioning, pre-push image gating, and multi-arch manifest verification). They are not intended for local use — use `make up` + `make start` locally instead.
+> The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, `docker-verify-manifest`, `check-version`, and `tag-release` targets are internal helpers — `tag-release` and `check-version` are invoked transitively via `make release`; the `ci-*` and `docker-*` targets are called exclusively from CI (service-container provisioning, pre-push image gating, and multi-arch manifest verification). They are not intended for direct local use — use `make up` + `make start` locally and `make release VERSION=vX.Y.Z` for tagging.
 
 ### Docker & Image
 
@@ -444,7 +478,8 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 | **test**             | changes, static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                                                                                                                                                                                             |
 | **e2e**              | changes, build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                                                                                                                                                                                           |
 | **e2e-dapr**         | changes, build, test               | `make ci-seed-db` + build image + `./e2e/e2e-dapr.sh` (production image alongside `dapr run` sidecar, asserts workflow COMPLETES). Skipped under act.                                                                                                                                                                                                     |
-| **integration-test** | changes, build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make integration-test` (PostgreSQL service container + Dapr CLI 1.17.1). Skipped under act.                                                                                                                                                                                                       |
+| **integration-test** | changes, build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make integration-test` (PostgreSQL service container + Dapr CLI pinned via `.mise.toml`). Skipped under act.                                                                                                                                                                                      |
+| **e2e-durability**   | changes, build, test               | `make ci-seed-db` + build image + `./e2e/e2e-durability.sh` (schedules a workflow with a 15s delay, kills the app container mid-flight, restarts it, asserts COMPLETED from Redis-persisted state). Skipped under act.                                                                                                                                    |
 | **dast**             | changes, build, test               | Build image via `cache-from: type=gha`, `make docker-smoke-test`, cached ZAP image, `make dast-scan`, upload report artifact. Skipped under act.                                                                                                                                                                                                          |
 | **docker**           | changes, static-check, build, test | Runs every push in parallel with `e2e`/`dast`; gates 1–4 (build + Trivy + smoke + multi-arch build) always run, registry push + cosign signing are tag-gated (`v*`) at step level                                                                                                                                                                         |
 | **ci-pass**          | all of the above                   | Gate job: fails if any upstream job failed                                                                                                                                                                                                                                                                                                                |
@@ -474,7 +509,7 @@ Verify a published image's signature:
 
 ```bash
 cosign verify ghcr.io/andriykalashnykov/dapr-nodejs-workflow:<tag> \
-  --certificate-identity-regexp 'https://github\.com/AndriyKalashnykov/dapr-nodejs-workflow/.+' \
+  --certificate-identity-regexp 'https://github\.com/AndriyKalashnykov/dapr-nodejs-workflow/\.github/workflows/ci\.yml@refs/tags/v.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 

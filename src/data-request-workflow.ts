@@ -44,12 +44,13 @@ export const fetchPostgresDataActivity = async (
   try {
     console.log(`Fetching data from Postgres with query: ${params.query}`);
 
-    // Get the Dapr HTTP port from environment variable or use default
+    // Resolve Dapr sidecar address from env (mirrors app.ts), default to localhost.
+    const daprHost = process.env.DAPR_HOST || "localhost";
     const daprHttpPort = process.env.DAPR_HTTP_PORT || "3500";
 
-    // Use direct HTTP call to Dapr sidecar for binding invocation with configurable port
+    // Use direct HTTP call to Dapr sidecar for binding invocation
     const response = await axios.post(
-      `http://localhost:${daprHttpPort}/v1.0/bindings/${params.storeName}`,
+      `http://${daprHost}:${daprHttpPort}/v1.0/bindings/${params.storeName}`,
       {
         operation: "query",
         metadata: {

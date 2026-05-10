@@ -272,32 +272,11 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 
 ## Upgrade Backlog
 
-### Critical / time-boxed
-
-- [ ] **Debian 12 (Bookworm) EOL 2026-06-10** — `Dockerfile` uses `node:24-bookworm-slim` + `gcr.io/distroless/nodejs24-debian12:nonroot`. Distroless has a Debian-13 variant (`nodejs24-debian13:nonroot` probed, 200 OK). Migrate both stages to Trixie before 2026-06-10 or lose upstream security patches.
-- [ ] **Redis 8.0 EOL'd 2026-02-11** — `docker-compose.yaml` pins `redis:8-alpine@sha256:81b6f81d…` which is from the 8.0 line. Current `8-alpine` digest is `sha256:c5e375abb…` (resolves to `redis:8.6.2` on Trixie). Bump digest (Renovate `docker-compose` manager should propose; verify no PR is stuck).
-
-### Known architectural / Renovate gaps
+### Known architectural gaps (monitor upstream)
 
 - [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
 - [ ] `axios` pulls `follow-redirects` (overridden to `>=1.16.0` in `pnpm-workspace.yaml`) — monitor axios for a release that bumps the dep and drops the override
 - [ ] Ubuntu 26.04 LTS shipped Apr 2026 — actively track the GitHub Actions `ubuntu-latest` runner migration (runners transition in stages after the release) and bump any hardcoded `ubuntu-24.04` / `ubuntu-22.04` `runs-on:` pins when the new image is stable
-- [ ] `dapr/setup-dapr@v2` runs on Node 20 (deprecated by GitHub Sep 2026). Upstream last commit 2024-07-01; no `v3` released yet, even `main` uses `node20`. Track [dapr/setup-dapr](https://github.com/dapr/setup-dapr) for an update
-- [ ] `pnpm/action-setup@v5` emits `[DEP0169] url.parse()` deprecation warning in CI logs — upstream issue, will resolve in a future patch
-- [ ] `postgres:18-alpine` digest is hardcoded in `ci.yml` AND `docker-compose.yaml` — only the compose pin is Renovate-tracked. Add a custom regex for `ci.yml` `postgres:18-alpine@sha256:<digest>` (datasource=docker depName=postgres)
-- [ ] Dapr runtime is unpinned (`dapr init` pulls latest) — add `--runtime-version $(DAPR_RUNTIME_VERSION)` for reproducibility; track via Renovate's `github-releases` datasource on `dapr/dapr`
-- [ ] **`@types/node` has no Renovate constraint to match Node's major.** Latest is 25.x; Node pinned to 24 via `.nvmrc`. The `type-definitions` group auto-merges, so a silent cross-major type bump is possible. Add a Renovate `packageRule`: `{ "matchPackageNames": ["@types/node"], "allowedVersions": "/^24\\./" }`
-- [ ] **`pnpm` version pinned in two places**: `package.json#packageManager` AND `Makefile PNPM_VERSION`. Renovate updates each independently via different managers (`npm` for packageManager, custom regex for the Makefile). Consider deriving the Makefile value from `package.json` at runtime to eliminate drift
-
-### GitHub Actions majors waiting (bundle when Renovate proposes)
-
-- [ ] `docker/setup-qemu-action` v3 → v4
-- [ ] `docker/setup-buildx-action` v3 → v4
-- [ ] `docker/build-push-action` v6 → v7 (cache defaults changed)
-- [ ] `docker/login-action` v3 → v4
-- [ ] `docker/metadata-action` v5 → v6 (default flavor behavior changed)
-- [ ] `actions/upload-artifact` v4 → v7 (three majors; v4 removed cross-job merging — used only for ZAP report, low risk)
-- [ ] `actions/cache` v4 → v5 (first run after upgrade will cache-miss)
 
 ## Skills
 

@@ -70,6 +70,11 @@
       "description": "Keep @types/node major aligned with Node engine (.nvmrc pins 24)",
       "matchPackageNames": ["@types/node"],
       "allowedVersions": "<25.0.0"
+    },
+    {
+      "description": "Group pnpm pins in package.json (npm manager) and .mise.toml (mise manager) into one PR to avoid drift",
+      "matchPackageNames": ["pnpm"],
+      "groupName": "pnpm"
     }
   ],
   "customManagers": [
@@ -78,7 +83,7 @@
       "description": "Update Makefile tool versions via inline renovate comments",
       "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)( versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+\\s*:=\\s*(?<currentValue>[^\\s]+)"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)(?: registryUrl=(?<registryUrl>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+\\s*[?:]?=\\s*(?<currentValue>[^\\s]+)"
       ]
     },
     {

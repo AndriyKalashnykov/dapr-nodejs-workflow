@@ -13,7 +13,30 @@ export PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
 
 APP_NAME       := dapr-nodejs-workflow
 CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
-PORT ?= 3000
+
+# --- Network / hosts ---
+# All recipes route through $(HOST); override for non-local targets.
+HOST                ?= localhost
+
+# --- Service ports (from the README "Service Ports" table) ---
+# Override-friendly so tests / parallel runs can pick alternative ports.
+# Note: trailing-comment form (`VAR ?= 3000 # …`) leaks the inline whitespace
+# into the value on some make versions — keep comments on separate lines.
+PORT                ?= 3000
+DAPR_HTTP_PORT      ?= 3500
+DAPR_GRPC_PORT      ?= 50001
+DAPR_SCHEDULER_PORT ?= 50006
+POSTGRES_PORT       ?= 5432
+REDIS_PORT          ?= 6379
+# Host port the prod image binds for e2e + smoke + DAST.
+TEST_HOST_PORT      ?= 3100
+
+# --- Identifiers and paths ---
+# Dapr app-id (also the `make stop` lookup key).
+APP_ID              ?= workflow-api
+# Local dev / CI Dapr components.
+COMPONENTS_PATH     ?= ./components
+CI_COMPONENTS_PATH  ?= ./dapr/ci
 
 # --- Pinned tool versions ---
 # Language toolchains + CLI tools (node, pnpm, act, dapr, gitleaks, hadolint,
@@ -125,6 +148,7 @@ deps-prune-check: install
 
 #mermaid-lint: @ Validate Mermaid diagrams in README.md and CLAUDE.md via pinned mermaid-cli
 mermaid-lint: deps
+	@command -v $(DOCKER) >/dev/null 2>&1 || { echo "ERROR: $(DOCKER) is not on PATH (needed to pull minlag/mermaid-cli)"; exit 1; }
 	@set -euo pipefail; \
 	MD_FILES=$$(grep -lF '```mermaid' README.md CLAUDE.md 2>/dev/null || true); \
 	if [ -z "$$MD_FILES" ]; then \
@@ -200,10 +224,10 @@ integration-test: install
 smoke: build
 	@trap 'kill $$SERVER_PID 2>/dev/null || true' EXIT; \
 	node dist/api-server.js & SERVER_PID=$$!; \
-	echo "Waiting for server on port $(PORT)..."; \
-	timeout 10 bash -c 'until curl -sf http://localhost:$(PORT)/ > /dev/null; do sleep 1; done' || { echo "Server failed to start"; exit 1; }; \
+	echo "Waiting for server on $(HOST):$(PORT)..."; \
+	timeout 10 bash -c 'until curl -sf http://$(HOST):$(PORT)/ > /dev/null; do sleep 1; done' || { echo "Server failed to start"; exit 1; }; \
 	echo "Server is up, running smoke tests..."; \
-	curl -sf http://localhost:$(PORT)/ | grep -q "Dapr Workflow API" || { echo "Health check failed"; exit 1; }; \
+	curl -sf http://$(HOST):$(PORT)/ | grep -q "Dapr Workflow API" || { echo "Health check failed"; exit 1; }; \
 	echo "Smoke tests passed"
 
 #check: @ Run full local verification (static-check, test, build) — static-check runs lint which runs prettier --check
@@ -243,32 +267,35 @@ postgres-start:
 postgres-stop:
 	@podman stop dapr-nodejs-postgres 2>/dev/null || echo "PostgreSQL container is not running."
 
-#dapr-init: @ Initialize Dapr in local environment (stops conflicting Redis if needed)
+#dapr-init: @ Initialize Dapr (pinned runtime; locally stops a conflicting Redis on $(REDIS_PORT) first)
 dapr-init: deps
-	@if podman ps -q --filter "publish=6379" | grep -q .; then \
-		echo "Stopping container on port 6379 to free it for dapr init..."; \
-		podman stop $$(podman ps -q --filter "publish=6379"); \
+	@# `dapr init` brings up its own Redis on :6379. Locally a podman-compose
+	@# Redis from `make up` may already hold the port; stop it before init.
+	@# Skip in CI (no podman, port unowned).
+	@if [ -z "$$CI" ] && podman ps -q --filter "publish=$(REDIS_PORT)" 2>/dev/null | grep -q .; then \
+		echo "Stopping container on port $(REDIS_PORT) to free it for dapr init..."; \
+		podman stop $$(podman ps -q --filter "publish=$(REDIS_PORT)"); \
 	fi
 	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
 
 #start: @ Build and start the API server with Dapr sidecar
 start: build
-	@DAPR_HOST=localhost DAPR_GRPC_PORT=50001 DAPR_HTTP_PORT=3500 \
+	@DAPR_HOST=$(HOST) DAPR_GRPC_PORT=$(DAPR_GRPC_PORT) DAPR_HTTP_PORT=$(DAPR_HTTP_PORT) \
 	dapr run \
-		--app-id workflow-api \
+		--app-id $(APP_ID) \
 		--app-port $(PORT) \
 		--app-protocol http \
-		--dapr-grpc-port 50001 \
-		--dapr-http-port 3500 \
-		--scheduler-host-address localhost:50006 \
-		--resources-path ./components \
+		--dapr-grpc-port $(DAPR_GRPC_PORT) \
+		--dapr-http-port $(DAPR_HTTP_PORT) \
+		--scheduler-host-address $(HOST):$(DAPR_SCHEDULER_PORT) \
+		--resources-path $(COMPONENTS_PATH) \
 		-- node dist/api-server.js
 
 #stop: @ Stop the Dapr sidecar and API server
 stop:
-	@RESULT=$$(dapr stop --app-id workflow-api 2>&1); \
+	@RESULT=$$(dapr stop --app-id $(APP_ID) 2>&1); \
 	if echo "$$RESULT" | grep -q "couldn't find app id"; then \
-		echo "App workflow-api is not running."; \
+		echo "App $(APP_ID) is not running."; \
 	else \
 		echo "$$RESULT"; \
 	fi
@@ -283,24 +310,24 @@ run: start-no-dapr
 #check-workflow: @ Trigger a test workflow and print the result
 check-workflow:
 	@echo "Scheduling workflow..."
-	@RESP=$$(curl -s -X POST http://localhost:$(PORT)/process-payload \
+	@RESP=$$(curl -s -X POST http://$(HOST):$(PORT)/process-payload \
 		-H "Content-Type: application/json" \
 		-d '{"name":"Test","data":{"key":"value"}}'); \
 	echo "Response: $$RESP"; \
 	ID=$$(echo "$$RESP" | grep -o '"id":"[^"]*"' | cut -d'"' -f4); \
-	if [ -z "$$ID" ]; then echo "Server not responding on port $(PORT) (is it running with Dapr?)"; \
+	if [ -z "$$ID" ]; then echo "Server not responding on $(HOST):$(PORT) (is it running with Dapr?)"; \
 	else \
 	echo "Workflow ID: $$ID"; \
 	echo "Waiting 5s before polling status..."; \
 	sleep 5; \
-	STATUS=$$(curl -s "http://localhost:$(PORT)/workflow/$$ID/status"); \
+	STATUS=$$(curl -s "http://$(HOST):$(PORT)/workflow/$$ID/status"); \
 	echo "$$STATUS" | python3 -m json.tool 2>/dev/null || echo "$$STATUS"; \
 	fi
 
 #check-db: @ Run the database health check endpoint
 check-db:
-	@RESP=$$(curl -s --connect-timeout 5 http://localhost:$(PORT)/db-health); \
-	if [ -z "$$RESP" ]; then echo "Server not responding on port $(PORT) (is it running with Dapr?)"; \
+	@RESP=$$(curl -s --connect-timeout 5 http://$(HOST):$(PORT)/db-health); \
+	if [ -z "$$RESP" ]; then echo "Server not responding on $(HOST):$(PORT) (is it running with Dapr?)"; \
 	else echo "$$RESP" | python3 -m json.tool 2>/dev/null || echo "$$RESP"; fi
 
 #check-version: @ Ensure VERSION variable is set and valid semver (vX.Y.Z)
@@ -333,7 +360,7 @@ image-build: build
 #image-run: @ Run Docker image standalone (no Dapr)
 image-run: image-stop
 	@$(DOCKER) run --rm -d --name $(IMAGE_NAME) -p $(PORT):3000 $(IMAGE)
-	@echo "Container started -> http://localhost:$(PORT)"
+	@echo "Container started -> http://$(HOST):$(PORT)"
 
 #image-stop: @ Stop Docker image container
 image-stop:
@@ -342,26 +369,25 @@ image-stop:
 #e2e: @ End-to-end test of the production Docker image
 e2e: image-build
 	@SVC=$(IMAGE_NAME)-e2e; \
-	HOST_PORT=3100; \
 	trap "$(DOCKER) rm -f $$SVC >/dev/null 2>&1 || true" EXIT; \
-	echo "Starting container $$SVC on port $$HOST_PORT..."; \
-	$(DOCKER) run -d --name $$SVC -p $$HOST_PORT:3000 $(IMAGE) >/dev/null; \
+	echo "Starting container $$SVC on $(HOST):$(TEST_HOST_PORT)..."; \
+	$(DOCKER) run -d --name $$SVC -p $(TEST_HOST_PORT):3000 $(IMAGE) >/dev/null; \
 	echo "Waiting for HTTP..."; \
 	for i in $$(seq 1 30); do \
-		curl -sf "http://localhost:$$HOST_PORT/" >/dev/null 2>&1 && break; \
+		curl -sf "http://$(HOST):$(TEST_HOST_PORT)/" >/dev/null 2>&1 && break; \
 		sleep 1; \
 		[ "$$i" -eq 30 ] && { echo "Container failed to start:"; $(DOCKER) logs $$SVC; exit 1; }; \
 	done; \
 	echo ""; \
 	echo "[1/3] GET / (health endpoint)"; \
-	BODY=$$(curl -sf "http://localhost:$$HOST_PORT/"); \
+	BODY=$$(curl -sf "http://$(HOST):$(TEST_HOST_PORT)/"); \
 	echo "  body: $$BODY"; \
 	echo "$$BODY" | grep -q "Dapr Workflow API" || { echo "FAIL: unexpected body"; exit 1; }; \
 	echo "  PASS"; \
 	echo ""; \
 	echo "[2/3] POST /process-payload (expect Dapr unreachable error)"; \
 	HTTP=$$(curl -s -o /tmp/e2e-resp.json -w "%{http_code}" -X POST \
-		"http://localhost:$$HOST_PORT/process-payload" \
+		"http://$(HOST):$(TEST_HOST_PORT)/process-payload" \
 		-H "Content-Type: application/json" \
 		-d '{"name":"e2e-test","data":{"key":"value"}}'); \
 	echo "  HTTP $$HTTP"; \
@@ -378,18 +404,18 @@ e2e: image-build
 
 #e2e-dapr: @ Full-stack e2e: run production image + Dapr sidecar, assert workflow COMPLETED
 e2e-dapr: image-build
-	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) RESOURCES_PATH=./components \
+	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) HOST=$(HOST) RESOURCES_PATH=$(COMPONENTS_PATH) \
 		./e2e/e2e-dapr.sh
 
 #e2e-durability: @ Workflow replay e2e: kill the app mid-flight and assert the workflow still COMPLETES
 e2e-durability: image-build
-	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) RESOURCES_PATH=./components \
+	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) HOST=$(HOST) RESOURCES_PATH=$(COMPONENTS_PATH) \
 		./e2e/e2e-durability.sh
 
 #docker-smoke-test: @ Boot-marker smoke test: start smoke-test container, wait for boot. Leaves container running for DAST (CI)
 docker-smoke-test:
 	@set -eu; \
-	docker run -d --name smoke-test -p 3100:3000 $(IMAGE_NAME):scan; \
+	docker run -d --name smoke-test -p $(TEST_HOST_PORT):3000 $(IMAGE_NAME):scan; \
 	deadline=$$(($$(date +%s) + 30)); \
 	while [ $$(date +%s) -lt $$deadline ]; do \
 		if docker logs smoke-test 2>&1 | grep -qE 'REST API server running|listening on|started on port'; then \
@@ -402,7 +428,7 @@ docker-smoke-test:
 	docker logs smoke-test; \
 	exit 1
 
-#dast-scan: @ Run ZAP baseline scan against an already-running container on localhost:3100 (CI)
+#dast-scan: @ Run ZAP baseline scan against an already-running container on $(HOST):$(TEST_HOST_PORT) (CI)
 dast-scan:
 	@set -eu; \
 	WORK="$${GITHUB_WORKSPACE:-$$PWD}"; \
@@ -412,7 +438,7 @@ dast-scan:
 		-v "$$WORK/zap-output:/zap/wrk:rw" \
 		ghcr.io/zaproxy/zaproxy:$(ZAP_VERSION) \
 		zap-baseline.py \
-			-t http://localhost:3100 \
+			-t http://$(HOST):$(TEST_HOST_PORT) \
 			-I \
 			-r zap-report.html \
 			-J zap-report.json \
@@ -441,10 +467,10 @@ docker-verify-manifest:
 #dast: @ ZAP baseline DAST scan against the built image
 dast: image-build
 	@$(DOCKER) rm -f $(IMAGE_NAME)-dast 2>/dev/null || true
-	@$(DOCKER) run -d --name $(IMAGE_NAME)-dast -p 3100:3000 $(IMAGE) >/dev/null
+	@$(DOCKER) run -d --name $(IMAGE_NAME)-dast -p $(TEST_HOST_PORT):3000 $(IMAGE) >/dev/null
 	@echo "Waiting for container to become healthy..."
 	@for i in $$(seq 1 30); do \
-		curl -sf http://localhost:3100/ >/dev/null 2>&1 && break; \
+		curl -sf http://$(HOST):$(TEST_HOST_PORT)/ >/dev/null 2>&1 && break; \
 		sleep 1; \
 		[ "$$i" -eq 30 ] && { echo "Container failed to start"; $(DOCKER) logs $(IMAGE_NAME)-dast; $(DOCKER) rm -f $(IMAGE_NAME)-dast; exit 1; }; \
 	done
@@ -453,7 +479,7 @@ dast: image-build
 		-v "$$(pwd)/zap-output:/zap/wrk:rw" \
 		ghcr.io/zaproxy/zaproxy:$(ZAP_VERSION) \
 		zap-baseline.py \
-			-t http://localhost:3100 \
+			-t http://$(HOST):$(TEST_HOST_PORT) \
 			-I \
 			-r zap-report.html \
 			-J zap-report.json \
@@ -483,34 +509,34 @@ ci-run-tag: deps
 
 #ci-seed-db: @ Seed PostgreSQL with baseline schema and data (CI only)
 ci-seed-db:
-	@PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f db/baseline_ddl.sql
-	@PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -f db/baseline_dml.sql
+	@PGPASSWORD=postgres psql -h $(HOST) -p $(POSTGRES_PORT) -U postgres -d postgres -f db/baseline_ddl.sql
+	@PGPASSWORD=postgres psql -h $(HOST) -p $(POSTGRES_PORT) -U postgres -d postgres -f db/baseline_dml.sql
 
 #ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
 ci-dapr-start:
 	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
-	@DAPR_HOST=localhost DAPR_GRPC_PORT=50001 DAPR_HTTP_PORT=3500 \
+	@DAPR_HOST=$(HOST) DAPR_GRPC_PORT=$(DAPR_GRPC_PORT) DAPR_HTTP_PORT=$(DAPR_HTTP_PORT) \
 	nohup dapr run \
-		--app-id workflow-api \
-		--app-port 3000 \
+		--app-id $(APP_ID) \
+		--app-port $(PORT) \
 		--app-protocol http \
-		--dapr-grpc-port 50001 \
-		--dapr-http-port 3500 \
-		--scheduler-host-address localhost:50006 \
-		--resources-path ./dapr/ci \
+		--dapr-grpc-port $(DAPR_GRPC_PORT) \
+		--dapr-http-port $(DAPR_HTTP_PORT) \
+		--scheduler-host-address $(HOST):$(DAPR_SCHEDULER_PORT) \
+		--resources-path $(CI_COMPONENTS_PATH) \
 		--log-level warn \
 		-- node dist/api-server.js > /tmp/dapr-run.log 2>&1 & \
-	echo "Waiting for Dapr sidecar on :3500..." && \
+	echo "Waiting for Dapr sidecar on $(HOST):$(DAPR_HTTP_PORT)..." && \
 	timeout 30 bash -c \
-		'until curl -sf http://localhost:3500/v1.0/healthz > /dev/null; do sleep 1; done' \
+		'until curl -sf http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz > /dev/null; do sleep 1; done' \
 		|| { echo "=== dapr run log ==="; cat /tmp/dapr-run.log; exit 1; } && \
-	echo "Waiting for Dapr gRPC on :50001..." && \
+	echo "Waiting for Dapr gRPC on $(HOST):$(DAPR_GRPC_PORT)..." && \
 	timeout 15 bash -c \
-		'until nc -z localhost 50001 2>/dev/null; do sleep 1; done' \
-		|| { echo "gRPC port 50001 not available"; exit 1; } && \
-	echo "Waiting for API server on :3000..." && \
+		'until nc -z $(HOST) $(DAPR_GRPC_PORT) 2>/dev/null; do sleep 1; done' \
+		|| { echo "gRPC port $(DAPR_GRPC_PORT) not available on $(HOST)"; exit 1; } && \
+	echo "Waiting for API server on $(HOST):$(PORT)..." && \
 	timeout 15 bash -c \
-		'until curl -sf http://localhost:3000/ > /dev/null; do sleep 1; done' \
+		'until curl -sf http://$(HOST):$(PORT)/ > /dev/null; do sleep 1; done' \
 		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run.log; exit 1; } && \
 	echo "Dapr sidecar and API server are ready."
 
@@ -534,13 +560,18 @@ ci-run: deps
 		--container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts
 
-#renovate: @ Run Renovate locally in dry-run mode
+#renovate: @ Run Renovate locally in dry-run mode (mise-installed via npm:renovate)
 renovate: deps
-	@GITHUB_COM_TOKEN="$(GITHUB_TOKEN)" LOG_LEVEL=debug npx renovate --dry-run=full --platform=local --repository-cache=reset
+	@# `$$GITHUB_TOKEN` is escaped — Make passes the literal `$GITHUB_TOKEN` to
+	@# `sh`, so the shell substitutes it AFTER `execve`; the token never enters
+	@# any argv. Same pattern as security.md §"Never put secret VALUES on the
+	@# command line" — env-renaming form. LOG_LEVEL stays at default (info).
+	@if [ -n "$$GITHUB_TOKEN" ]; then export GITHUB_COM_TOKEN="$$GITHUB_TOKEN"; fi; \
+		renovate --dry-run=full --platform=local --repository-cache=reset
 
 #renovate-validate: @ Validate Renovate configuration
 renovate-validate: deps
-	@npx --yes renovate --platform=local
+	@renovate --platform=local
 
 .PHONY: help deps clean install build format format-check \
 	lint vulncheck secrets trivy-fs deps-prune deps-prune-check static-check \

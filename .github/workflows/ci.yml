@@ -35,7 +35,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      # Tag pushes always trigger the full pipeline regardless of paths-filter.
+      # When a tag points at a SHA that already lives on main, the diff is
+      # empty -> code=false -> every gated job skips -> ci-pass reports green
+      # but the release publishes nothing. Forcing 'true' on tag refs preempts
+      # this silent ghost-release failure mode.
+      code: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || steps.filter.outputs.code }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -45,6 +50,11 @@ jobs:
         id: filter
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
+          # `base:` is required by paths-filter on push events under act
+          # (event payload doesn't carry repository.default_branch reliably).
+          # On real GitHub PR events the input is ignored; gate via template
+          # expression so the warning annotation only surfaces on push.
+          base: ${{ github.event_name == 'push' && 'main' || '' }}
           filters: |
             code:
               - '!(**.md|docs/**|specs/**|LICENSE|.gitignore|.claudeignore|.claude/**|benchmarks/**|**.png|**.jpg|**.gif|**.svg)'
@@ -52,7 +62,7 @@ jobs:
 
   static-check:
     needs: [changes]
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -82,7 +92,7 @@ jobs:
 
   build:
     needs: [changes, static-check]
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -114,7 +124,7 @@ jobs:
 
   test:
     needs: [changes, static-check]
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
     timeout-minutes: 5
     runs-on: ubuntu-latest
 
@@ -143,7 +153,7 @@ jobs:
 
   integration-test:
     # service containers and psql aren't available under act
-    if: needs.changes.outputs.code == 'true' && vars.ACT != 'true'
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' }}
     needs: [changes, build, test]
     timeout-minutes: 10
     runs-on: ubuntu-latest
@@ -188,7 +198,7 @@ jobs:
       - name: Seed database
         run: make ci-seed-db
 
-      - name: Build and start Dapr + server
+      - name: Build and start Dapr server
         run: |
           make build
           make ci-dapr-start
@@ -198,7 +208,7 @@ jobs:
 
   e2e:
     needs: [changes, build, test]
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -222,14 +232,14 @@ jobs:
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pnpm-store-${{ runner.os }}-
 
-      - name: Run end-to-end tests
+      - name: End-to-end test
         run: make e2e
 
   e2e-dapr:
     # Full-stack e2e: runs the production Docker image alongside a real Dapr
     # sidecar, schedules a workflow via HTTP and asserts it COMPLETES with the
     # expected enriched payload. Skipped under act (service containers required).
-    if: needs.changes.outputs.code == 'true' && vars.ACT != 'true'
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' }}
     needs: [changes, build, test]
     timeout-minutes: 15
     runs-on: ubuntu-latest
@@ -269,7 +279,7 @@ jobs:
           experimental: true # pnpm backend
 
       - name: Initialize Dapr
-        run: dapr init
+        run: make dapr-init
 
       - name: Seed database
         run: make ci-seed-db
@@ -285,8 +295,72 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Run end-to-end tests with Dapr sidecar
+      - name: End-to-end test
         run: IMAGE=dapr-nodejs-workflow:e2e RESOURCES_PATH=./dapr/ci ./e2e/e2e-dapr.sh
+
+  e2e-durability:
+    # Workflow durability e2e — Dapr's primary value proposition. Schedules a
+    # workflow with a delay, kills the app container mid-flight, restarts it,
+    # and asserts the workflow still COMPLETES from Redis-persisted state.
+    # Skipped under act (service containers required).
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' }}
+    needs: [changes, build, test]
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+
+    services:
+      # renovate: datasource=docker depName=postgres
+      postgres:
+        image: postgres:18-alpine@sha256:54451ecb8ab38c24c3ec123f2fd501303a3a1856a5c66e98cecf2460d5e1e9d7
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Set up mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          install: true
+          cache: true
+          experimental: true # pnpm backend
+
+      - name: Initialize Dapr
+        run: make dapr-init
+
+      - name: Seed database
+        run: make ci-seed-db
+
+      - name: Build image for durability e2e
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: dapr-nodejs-workflow:durability
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: End-to-end test
+        run: IMAGE=dapr-nodejs-workflow:durability RESOURCES_PATH=./dapr/ci ./e2e/e2e-durability.sh
 
   dast:
     # DAST runs in parallel with e2e and docker — scans the production image
@@ -294,7 +368,7 @@ jobs:
     # starts it via make docker-smoke-test, then runs ZAP baseline. Skipped under
     # nektos/act: ZAP's docker-in-docker bind mount of $GITHUB_WORKSPACE/zap-output
     # doesn't round-trip through the host Docker daemon.
-    if: needs.changes.outputs.code == 'true' && vars.ACT != 'true'
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' }}
     needs: [changes, build, test]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -368,7 +442,7 @@ jobs:
     # gates 1-4 (build + Trivy + smoke + multi-arch build) to catch
     # arm64 cross-compile regressions and cosign installer breakage early.
     needs: [changes, static-check, build, test]
-    if: needs.changes.outputs.code == 'true'
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -490,6 +564,7 @@ jobs:
         test,
         e2e,
         e2e-dapr,
+        e2e-durability,
         integration-test,
         dast,
         docker,
@@ -501,5 +576,9 @@ jobs:
         run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
             echo "One or more jobs failed"
+            exit 1
+          fi
+          if [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "One or more jobs were cancelled"
             exit 1
           fi
