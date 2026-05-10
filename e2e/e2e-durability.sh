@@ -158,10 +158,11 @@ echo "  output: $OUTPUT"
 # JSON-parse + structural assertions. Catches the regression class where the
 # replayed run returns a cached error envelope under dbData instead of the
 # real binding result — `grep -q '"dbData"'` would silently pass.
-printf '%s' "$OUTPUT" | python3 - <<'PY'
+# Pass the script via -c so stdin stays available for the piped JSON.
+printf '%s' "$OUTPUT" | python3 -c '
 import json, sys
 output = json.loads(sys.stdin.read())
-assert output.get("processed") is True, f"processed flag not True after replay: {output.get('processed')!r}"
+assert output.get("processed") is True, f"processed flag not True after replay: {output.get(\"processed\")!r}"
 db = output.get("dbData")
 assert db is not None, "dbData missing after replay"
 if isinstance(db, list):
@@ -172,7 +173,7 @@ elif isinstance(db, dict):
 else:
     raise AssertionError(f"dbData unexpected type {type(db).__name__}: {db!r}")
 print("  payload structure OK after replay")
-PY
+'
 
 echo ""
 echo "e2e-durability tests passed — workflow survived container restart"

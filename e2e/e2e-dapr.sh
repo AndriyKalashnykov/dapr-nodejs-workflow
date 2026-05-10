@@ -139,11 +139,15 @@ echo "  output: $OUTPUT"
 # for any substring match (e.g. nested fields with the same key); parsing catches
 # regressions where the binding silently returns an empty payload or an error
 # envelope under the dbData key.
-printf '%s' "$OUTPUT" | python3 - <<'PY'
+#
+# Pass the script via -c so stdin stays available for the piped JSON.
+# (`python3 - <<'PY'` would consume stdin for the heredoc and leave nothing
+# for sys.stdin.read() — silent JSONDecodeError on empty input.)
+printf '%s' "$OUTPUT" | python3 -c '
 import json, sys
 output = json.loads(sys.stdin.read())
-assert output.get("processed") is True, f"processed flag not True: {output.get('processed')!r}"
-assert output.get("modified")  is True, f"modified flag not True: {output.get('modified')!r}"
+assert output.get("processed") is True, f"processed flag not True: {output.get(\"processed\")!r}"
+assert output.get("modified")  is True, f"modified flag not True: {output.get(\"modified\")!r}"
 assert isinstance(output.get("processedAt"), str) and output["processedAt"], "processedAt missing or empty"
 db = output.get("dbData")
 assert db is not None, "dbData missing"
@@ -158,7 +162,7 @@ elif isinstance(db, dict):
 else:
     raise AssertionError(f"dbData unexpected type {type(db).__name__}: {db!r}")
 print("  payload structure OK")
-PY
+'
 echo "  PASS: payload enriched by modifyPayloadActivity + postgres binding round-tripped"
 
 echo ""

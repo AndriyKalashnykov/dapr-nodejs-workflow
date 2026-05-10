@@ -144,33 +144,11 @@ describe("workflow end-to-end completion", () => {
     expect(final.status).toBe("COMPLETED");
   }, 35_000);
 
-  it("folds dbError into payload when the postgres binding fails (does NOT fail the workflow)", async () => {
-    // Point at a non-existent storeName — Dapr's binding lookup fails, the
-    // activity returns a structured error envelope, and the workflow swallows
-    // it and folds it under `dbError` instead of failing.
-    const { id } = await scheduleWorkflow({
-      delayMs: 0,
-      payload: { name: "db-error" },
-      // Override default storeName to force a binding lookup failure.
-      // The /process-payload handler hardcodes "postgres-db" so we cheat by
-      // sending a query that postgres will reject (parse error -> 500 from binding).
-      // The workflow's catch-fold contract holds for ANY thrown error, so SQL syntax error works.
-      query: "this is not valid sql",
-    });
-
-    const status = await pollUntilCompleted(id, 30_000);
-    expect(status.status).toBe("COMPLETED");
-    const output = JSON.parse(status.output ?? "{}") as Record<string, unknown>;
-    // Either dbError landed (binding failed cleanly) OR dbData carries an error envelope.
-    // Both are acceptable expressions of the "do not fail the workflow" contract.
-    const hasError =
-      output.dbError !== undefined ||
-      (output.dbData &&
-        typeof output.dbData === "object" &&
-        "error" in (output.dbData as Record<string, unknown>));
-    expect(hasError).toBe(true);
-    expect(output.processed).toBe(true);
-  }, 35_000);
+  // Note: the dbError fold-in branch (`workflow catches activity throw and writes
+  // modifiedPayload.dbError`) cannot be exercised through the public API today —
+  // `POST /process-payload` hardcodes `query: "select * from users"` and ignores
+  // `req.body.query`. Activity-level coverage of the error-envelope shape lives
+  // in src/__tests__/activities.test.ts (5xx and connection-refused branches).
 
   it("handles 5 workflows scheduled concurrently — each reaches COMPLETED with distinct ids", async () => {
     const N = 5;
