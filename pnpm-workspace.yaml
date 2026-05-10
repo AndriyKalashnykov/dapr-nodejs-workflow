@@ -6,5 +6,6 @@ overrides:
   follow-redirects: ">=1.16.0"
   protobufjs: ">=7.5.5"
 
-onlyBuiltDependencies:
-  - protobufjs
+# pnpm v11 replaced onlyBuiltDependencies with allowBuilds (a map of name → bool).
+allowBuilds:
+  protobufjs: true

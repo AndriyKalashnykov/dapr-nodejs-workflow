@@ -37,6 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      contents: read # gh api repos/.../branches/<branch> for branch-existence check
       actions: write # gh cache delete
     env:
       GH_TOKEN: ${{ github.token }}

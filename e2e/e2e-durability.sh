@@ -13,12 +13,19 @@
 
 set -euo pipefail
 
+# Pick a free TCP port from the kernel's ephemeral range — see e2e-dapr.sh for rationale.
+pick_port() {
+  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'
+}
+
 DOCKER="${DOCKER:-docker}"
 IMAGE="${IMAGE:?IMAGE is required (e.g. IMAGE=dapr-nodejs-workflow:dev)}"
+HOST="${HOST:-localhost}"
 APP_ID="${APP_ID:-workflow-api-durability}"
-APP_PORT="${APP_PORT:-3110}"
-DAPR_GRPC_PORT="${DAPR_GRPC_PORT:-50021}"
-DAPR_HTTP_PORT="${DAPR_HTTP_PORT:-3520}"
+APP_PORT="${APP_PORT:-$(pick_port)}"
+DAPR_GRPC_PORT="${DAPR_GRPC_PORT:-$(pick_port)}"
+DAPR_HTTP_PORT="${DAPR_HTTP_PORT:-$(pick_port)}"
+DAPR_SCHEDULER_PORT="${DAPR_SCHEDULER_PORT:-50006}"
 RESOURCES_PATH="${RESOURCES_PATH:-./components}"
 CONTAINER_NAME="${CONTAINER_NAME:-dapr-nodejs-workflow-e2e-durability}"
 COMPLETION_TIMEOUT="${COMPLETION_TIMEOUT:-90}"
@@ -39,13 +46,13 @@ start_app() {
     --name "$CONTAINER_NAME" \
     --network host \
     -e "PORT=$APP_PORT" \
-    -e "DAPR_HOST=localhost" \
+    -e "DAPR_HOST=$HOST" \
     -e "DAPR_GRPC_PORT=$DAPR_GRPC_PORT" \
     -e "DAPR_HTTP_PORT=$DAPR_HTTP_PORT" \
     "$IMAGE" >/dev/null
 
   for i in $(seq 1 30); do
-    if curl -sf "http://localhost:$APP_PORT/" >/dev/null 2>&1; then
+    if curl -sf "http://$HOST:$APP_PORT/" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
@@ -69,13 +76,13 @@ dapr run \
   --app-protocol http \
   --dapr-grpc-port "$DAPR_GRPC_PORT" \
   --dapr-http-port "$DAPR_HTTP_PORT" \
-  --scheduler-host-address "localhost:50006" \
+  --scheduler-host-address "$HOST:$DAPR_SCHEDULER_PORT" \
   --resources-path "$RESOURCES_PATH" \
   --log-level warn \
   -- sleep 86400 >/tmp/e2e-durability.log 2>&1 &
 
 for i in $(seq 1 30); do
-  if curl -sf "http://localhost:$DAPR_HTTP_PORT/v1.0/healthz" >/dev/null 2>&1; then
+  if curl -sf "http://$HOST:$DAPR_HTTP_PORT/v1.0/healthz" >/dev/null 2>&1; then
     break
   fi
   sleep 1
@@ -89,7 +96,7 @@ echo "  sidecar healthy"
 
 echo ""
 echo "=== [3/6] Schedule workflow with delayMs=$WORKFLOW_DELAY_MS ==="
-SCHEDULE_RESP=$(curl -sf -X POST "http://localhost:$APP_PORT/process-payload" \
+SCHEDULE_RESP=$(curl -sf -X POST "http://$HOST:$APP_PORT/process-payload" \
   -H "Content-Type: application/json" \
   -d "{\"delayMs\":$WORKFLOW_DELAY_MS,\"payload\":{\"name\":\"durability-test\"}}")
 WF_ID=$(printf '%s' "$SCHEDULE_RESP" | python3 -c 'import sys,json; print(json.load(sys.stdin)["id"])')
@@ -99,7 +106,7 @@ echo "  workflow id: $WF_ID"
 echo ""
 echo "=== [4/6] Wait 5s so delayActivity is mid-flight, then KILL app container ==="
 sleep 5
-PRE_KILL_STATUS=$(curl -sf "http://localhost:$APP_PORT/workflow/$WF_ID/status" | \
+PRE_KILL_STATUS=$(curl -sf "http://$HOST:$APP_PORT/workflow/$WF_ID/status" | \
   python3 -c 'import sys,json; print(json.load(sys.stdin).get("status",""))')
 echo "  pre-kill status: $PRE_KILL_STATUS"
 if [ "$PRE_KILL_STATUS" = "COMPLETED" ]; then
@@ -122,7 +129,7 @@ DEADLINE=$(( $(date +%s) + COMPLETION_TIMEOUT ))
 STATUS=""
 OUTPUT=""
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-  STATE=$(curl -sf "http://localhost:$APP_PORT/workflow/$WF_ID/status" 2>/dev/null || echo "")
+  STATE=$(curl -sf "http://$HOST:$APP_PORT/workflow/$WF_ID/status" 2>/dev/null || echo "")
   if [ -n "$STATE" ]; then
     STATUS=$(printf '%s' "$STATE" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("status",""))')
     echo "  status=$STATUS"
@@ -147,8 +154,25 @@ if [ "$STATUS" != "COMPLETED" ]; then
 fi
 
 echo "  output: $OUTPUT"
-printf '%s' "$OUTPUT" | grep -q '"processed":true' || { echo "FAIL: processed flag missing after replay"; exit 1; }
-printf '%s' "$OUTPUT" | grep -q '"dbData"'         || { echo "FAIL: dbData missing — postgres binding did not re-execute on replay"; exit 1; }
+
+# JSON-parse + structural assertions. Catches the regression class where the
+# replayed run returns a cached error envelope under dbData instead of the
+# real binding result — `grep -q '"dbData"'` would silently pass.
+printf '%s' "$OUTPUT" | python3 - <<'PY'
+import json, sys
+output = json.loads(sys.stdin.read())
+assert output.get("processed") is True, f"processed flag not True after replay: {output.get('processed')!r}"
+db = output.get("dbData")
+assert db is not None, "dbData missing after replay"
+if isinstance(db, list):
+    assert len(db) > 0, "dbData empty list — postgres binding did not re-execute on replay"
+elif isinstance(db, dict):
+    assert "error" not in db, f"dbData carries error envelope after replay: {db}"
+    assert db, "dbData empty dict after replay"
+else:
+    raise AssertionError(f"dbData unexpected type {type(db).__name__}: {db!r}")
+print("  payload structure OK after replay")
+PY
 
 echo ""
 echo "e2e-durability tests passed — workflow survived container restart"

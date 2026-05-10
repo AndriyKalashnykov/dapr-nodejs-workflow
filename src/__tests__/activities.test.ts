@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { WorkflowActivityContext } from "@dapr/dapr";
+import axios, { AxiosError } from "axios";
 import {
   modifyPayloadActivity,
   delayActivity,
@@ -83,6 +84,7 @@ describe("fetchPostgresDataActivity", () => {
     } else {
       process.env.DAPR_HTTP_PORT = originalPort;
     }
+    vi.restoreAllMocks();
   });
 
   it("returns a structured error envelope when Dapr is unreachable", async () => {
@@ -98,5 +100,41 @@ describe("fetchPostgresDataActivity", () => {
     expect(result.message).toBeDefined();
     expect(typeof result.message).toBe("string");
     expect(result.timestamp).toBeDefined();
+  });
+
+  it("returns a structured error envelope when the binding returns 5xx", async () => {
+    const axiosError = Object.assign(
+      new Error("Request failed with status code 500"),
+      {
+        isAxiosError: true,
+        response: {
+          status: 500,
+          data: { message: 'ERROR: relation "users" does not exist' },
+        },
+      },
+    ) as AxiosError;
+    vi.spyOn(axios, "post").mockRejectedValueOnce(axiosError);
+
+    const result = await fetchPostgresDataActivity(stubCtx, {
+      query: "select * from users",
+      storeName: "postgres-db",
+    });
+
+    expect(result.error).toBe(true);
+    expect(result.status).toBe(500);
+    expect(result.message).toBe('ERROR: relation "users" does not exist');
+    expect(result.timestamp).toBeDefined();
+  });
+
+  it("returns an empty object when the binding response has no data field", async () => {
+    // Malformed-response branch: `response.data || {}` should default to {}.
+    vi.spyOn(axios, "post").mockResolvedValueOnce({ data: undefined } as never);
+
+    const result = await fetchPostgresDataActivity(stubCtx, {
+      query: "select 1",
+      storeName: "postgres-db",
+    });
+
+    expect(result).toEqual({});
   });
 });

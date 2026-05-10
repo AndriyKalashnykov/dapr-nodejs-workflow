@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import net from "net";
 import request from "supertest";
-import { app, checkPort } from "../app";
+import { app, checkPort, shutdown } from "../app";
 
 describe("checkPort", () => {
   it("returns true for a listening port", async () => {
@@ -32,6 +32,13 @@ describe("GET /", () => {
     const res = await request(app).get("/");
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ message: "Dapr Workflow API is running" });
+  });
+});
+
+describe("shutdown", () => {
+  it("returns cleanly when the workflow runtime was never initialized", async () => {
+    // No /process-payload call yet → workflowInitialized=false → shutdown is a no-op.
+    await expect(shutdown()).resolves.toBeUndefined();
   });
 });
 
