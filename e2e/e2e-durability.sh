@@ -158,22 +158,26 @@ echo "  output: $OUTPUT"
 # JSON-parse + structural assertions. Catches the regression class where the
 # replayed run returns a cached error envelope under dbData instead of the
 # real binding result — `grep -q '"dbData"'` would silently pass.
-# Pass the script via -c so stdin stays available for the piped JSON.
-printf '%s' "$OUTPUT" | python3 -c '
+# Same shell-vs-Python quoting pattern as e2e-dapr.sh:
+#   - quoted-heredoc capture (no shell expansion)
+#   - JSON via stdin pipe; script via -c "$VAR"
+PYSCRIPT=$(cat <<'PYSCRIPT_EOF'
 import json, sys
 output = json.loads(sys.stdin.read())
-assert output.get("processed") is True, f"processed flag not True after replay: {output.get(\"processed\")!r}"
+assert output.get("processed") is True, "processed flag not True after replay: " + repr(output.get("processed"))
 db = output.get("dbData")
 assert db is not None, "dbData missing after replay"
 if isinstance(db, list):
-    assert len(db) > 0, "dbData empty list — postgres binding did not re-execute on replay"
+    assert len(db) > 0, "dbData empty list - postgres binding did not re-execute on replay"
 elif isinstance(db, dict):
-    assert "error" not in db, f"dbData carries error envelope after replay: {db}"
+    assert "error" not in db, "dbData carries error envelope after replay: " + repr(db)
     assert db, "dbData empty dict after replay"
 else:
-    raise AssertionError(f"dbData unexpected type {type(db).__name__}: {db!r}")
+    raise AssertionError("dbData unexpected type " + type(db).__name__ + ": " + repr(db))
 print("  payload structure OK after replay")
-'
+PYSCRIPT_EOF
+)
+printf '%s' "$OUTPUT" | python3 -c "$PYSCRIPT"
 
 echo ""
 echo "e2e-durability tests passed — workflow survived container restart"

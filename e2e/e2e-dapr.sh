@@ -140,14 +140,15 @@ echo "  output: $OUTPUT"
 # regressions where the binding silently returns an empty payload or an error
 # envelope under the dbData key.
 #
-# Pass the script via -c so stdin stays available for the piped JSON.
-# (`python3 - <<'PY'` would consume stdin for the heredoc and leave nothing
-# for sys.stdin.read() — silent JSONDecodeError on empty input.)
-printf '%s' "$OUTPUT" | python3 -c '
+# Pattern: capture script via $()-quoted-heredoc (no shell expansion), feed JSON
+# via stdin pipe, run via `python3 -c "$SCRIPT"`. Avoids two collisions:
+#   - `python3 - <<'PY'` eats stdin for the heredoc → JSON pipe lost
+#   - `python3 -c '… "k" \"v\" …'` mixes shell and Python escaping → SyntaxError
+PYSCRIPT=$(cat <<'PYSCRIPT_EOF'
 import json, sys
 output = json.loads(sys.stdin.read())
-assert output.get("processed") is True, f"processed flag not True: {output.get(\"processed\")!r}"
-assert output.get("modified")  is True, f"modified flag not True: {output.get(\"modified\")!r}"
+assert output.get("processed") is True, "processed flag not True: " + repr(output.get("processed"))
+assert output.get("modified")  is True, "modified flag not True: "  + repr(output.get("modified"))
 assert isinstance(output.get("processedAt"), str) and output["processedAt"], "processedAt missing or empty"
 db = output.get("dbData")
 assert db is not None, "dbData missing"
@@ -155,14 +156,16 @@ assert db is not None, "dbData missing"
 # the seed data is present. An empty list/dict means the binding round-tripped
 # but returned nothing — usually a seed/CI race.
 if isinstance(db, list):
-    assert len(db) > 0, "dbData is an empty list — postgres binding returned no rows"
+    assert len(db) > 0, "dbData is an empty list - postgres binding returned no rows"
 elif isinstance(db, dict):
-    assert "error" not in db, f"dbData carries error envelope: {db}"
+    assert "error" not in db, "dbData carries error envelope: " + repr(db)
     assert db, "dbData is an empty dict"
 else:
-    raise AssertionError(f"dbData unexpected type {type(db).__name__}: {db!r}")
+    raise AssertionError("dbData unexpected type " + type(db).__name__ + ": " + repr(db))
 print("  payload structure OK")
-'
+PYSCRIPT_EOF
+)
+printf '%s' "$OUTPUT" | python3 -c "$PYSCRIPT"
 echo "  PASS: payload enriched by modifyPayloadActivity + postgres binding round-tripped"
 
 echo ""
