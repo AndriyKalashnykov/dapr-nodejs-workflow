@@ -1,5 +1,12 @@
 [tools]
-# Node is pinned via .nvmrc (single source of truth; mise reads it natively).
+# Node: pin major.minor.patch here (NOT just .nvmrc) so mise's shim
+# unambiguously wins over the GitHub runner's pre-installed Node when pnpm
+# probes the engine version on `pnpm install`/`pnpm run`. With .nvmrc alone
+# (just "24"), pnpm 11+ finds /usr/local/bin/node first during its bootstrap
+# probe and emits `[WARN] Unsupported engine: wanted >=24.14.1, current
+# v20.20.2` on every step. Keep this >= engines.node in package.json.
+# Renovate's native mise manager tracks the pin automatically.
+node = "24.15.0"
 # pnpm is pinned here because `package.json#packageManager` is consumed by
 # corepack, not by mise — this entry lets `mise install` bootstrap pnpm
 # alongside Node in one step, and keeps CI and local dev on the same version.
