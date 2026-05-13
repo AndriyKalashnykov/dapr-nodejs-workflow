@@ -47,7 +47,7 @@ NODE_VERSION     := $(shell cat .nvmrc 2>/dev/null || echo 24)
 # renovate: datasource=github-releases depName=dapr/dapr
 DAPR_RUNTIME_VERSION := 1.17.6
 # renovate: datasource=docker depName=minlag/mermaid-cli
-MERMAID_CLI_VERSION := 11.14.0
+MERMAID_CLI_VERSION := 11.15.0
 # renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
 ZAP_VERSION      := 2.17.0
 
