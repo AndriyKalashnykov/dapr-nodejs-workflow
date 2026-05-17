@@ -10,7 +10,7 @@ node = "24.15.0"
 # pnpm is pinned here because `package.json#packageManager` is consumed by
 # corepack, not by mise — this entry lets `mise install` bootstrap pnpm
 # alongside Node in one step, and keeps CI and local dev on the same version.
-pnpm = "11.1.1"
+pnpm = "11.1.2"
 
 # CLI tools — installed via mise so local dev and CI (via jdx/mise-action) use
 # the same pinned versions from one source of truth. Renovate's native mise
