@@ -4,7 +4,7 @@
 # Stage 1: Install production + dev dependencies (cached layer)
 # ============================================================================
 # renovate: datasource=docker depName=node
-FROM node:24-trixie-slim@sha256:03c389196d7027e9cf33c96adf3f19379fd41ef3e877d6b9b18f56edf728ef35 AS deps
+FROM node:24-trixie-slim@sha256:291be77873bc04731968cacf82f0fcef17cee8cf200c6b6951e2bcab41560eb7 AS deps
 
 RUN corepack enable
 
