@@ -6,7 +6,7 @@
 # probe and emits `[WARN] Unsupported engine: wanted >=24.14.1, current
 # v20.20.2` on every step. Keep this >= engines.node in package.json.
 # Renovate's native mise manager tracks the pin automatically.
-node = "24.15.0"
+node = "24.16.0"
 # pnpm is pinned here because `package.json#packageManager` is consumed by
 # corepack, not by mise — this entry lets `mise install` bootstrap pnpm
 # alongside Node in one step, and keeps CI and local dev on the same version.
