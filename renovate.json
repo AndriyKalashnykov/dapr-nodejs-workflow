@@ -75,15 +75,22 @@
       "description": "Group pnpm pins in package.json (npm manager) and .mise.toml (mise manager) into one PR to avoid drift",
       "matchPackageNames": ["pnpm"],
       "groupName": "pnpm"
+    },
+    {
+      "description": "Disable digest pinning for Makefile-tracked docker dev tools (mermaid-cli). The custom.regex manager captures version only, not digest; docker:pinDigests would otherwise generate a phantom pin-digest update Renovate cannot write back (visible on the Dependency Dashboard as the persistently-errored 'Pin minlag/mermaid-cli Docker tag to <hash>'). Production-runtime docker pins in Dockerfile/compose/workflow services keep their digest pins via the same preset; only this Makefile/custom.regex scope is exempted.",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["Makefile"],
+      "matchDatasources": ["docker"],
+      "pinDigests": false
     }
   ],
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update Makefile tool versions via inline renovate comments",
+      "description": "Update Makefile tool versions via inline renovate comments. The extractVersion group is required so that annotations like `extractVersion=^v(?<version>.*)$` (used on ZAP_VERSION) do not silently drop the constant — without the group, the regex cannot traverse past the extractVersion token and the dep extracts zero entries.",
       "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)(?: registryUrl=(?<registryUrl>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+\\s*[?:]?=\\s*(?<currentValue>[^\\s]+)"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)(?: extractVersion=(?<extractVersion>[^\\s]+))?(?: registryUrl=(?<registryUrl>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+\\s*[?:]?=\\s*(?<currentValue>[^\\s]+)"
       ]
     },
     {
@@ -96,10 +103,10 @@
     },
     {
       "customType": "regex",
-      "description": "Update docker image digests in GitHub Actions services blocks",
+      "description": "Update docker image digests in GitHub Actions services blocks. The currentDigest group MUST include the 'sha256:' prefix because Renovate's docker datasource emits newDigest with the prefix — capturing only the hex chars produced phantom 'currentDigest=<hex>' vs 'newDigest=sha256:<hex>' diffs that Renovate kept retrying as failed digest updates.",
       "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
       "matchStrings": [
-        "# renovate: datasource=docker depName=(?<depName>[^\\s]+)\\n\\s*[a-zA-Z_-]+:\\s*\\n\\s*image:\\s*[^\\s@:]+:(?<currentValue>[^\\s@]+)@sha256:(?<currentDigest>[a-f0-9]+)"
+        "# renovate: datasource=docker depName=(?<depName>[^\\s]+)\\n\\s*[a-zA-Z_-]+:\\s*\\n\\s*image:\\s*[^\\s@:]+:(?<currentValue>[^\\s@]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
       "datasourceTemplate": "docker"
     }

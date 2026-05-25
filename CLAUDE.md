@@ -10,7 +10,7 @@ Dapr Workflow demo using the Dapr JS SDK with an Express HTTP API frontend. A si
 
 ```bash
 # One-time setup
-make deps                # Bootstrap mise + install node/pnpm (from .nvmrc / .mise.toml), then check podman, dapr, git
+make deps                # Bootstrap mise + install node/pnpm (from .nvmrc / .mise.toml), then check podman + git
 make dapr-init           # Initialize Dapr (starts Redis, placement, scheduler containers)
 
 # Start infrastructure + server (two terminals)
@@ -37,11 +37,11 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Setup & Dependencies
 
-| Target           | Description                                                                                                                                                |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make deps`      | Bootstrap mise (once) and install every pinned tool (node from `.nvmrc`; pnpm, act, dapr, gitleaks, hadolint, trivy from `.mise.toml`); check podman + git |
-| `make install`   | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                                                                         |
-| `make dapr-init` | Initialize Dapr in local environment (stops conflicting Redis if needed)                                                                                   |
+| Target           | Description                                                                                                                                                                            |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make deps`      | Bootstrap mise (once) and install every pinned tool (node from `.nvmrc`; pnpm, act, dapr, gitleaks, hadolint, trivy from `.mise.toml`); check podman + git (CI skips the podman check) |
+| `make install`   | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                                                                                                     |
+| `make dapr-init` | Initialize Dapr in local environment (stops conflicting Redis if needed)                                                                                                               |
 
 ### Build & Quality
 
@@ -99,12 +99,12 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### CI & Release
 
-| Target                        | Description                                                             |
-| ----------------------------- | ----------------------------------------------------------------------- |
-| `make ci`                     | Run local CI pipeline (`format-check`, `static-check`, `test`, `build`) |
-| `make ci-run`                 | Run GitHub Actions workflow locally via `act` (requires Docker)         |
-| `make ci-run-tag`             | Run the workflow via `act` with a tag event (exercises the docker job)  |
-| `make release VERSION=vX.Y.Z` | Tag and push a release                                                  |
+| Target                        | Description                                                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `make ci`                     | Run local CI pipeline (`static-check`, `test`, `build`; `format-check` runs inside `static-check` via `lint`) |
+| `make ci-run`                 | Run GitHub Actions workflow locally via `act` (requires Docker)                                               |
+| `make ci-run-tag`             | Run the workflow via `act` with a tag event (exercises the docker job)                                        |
+| `make release VERSION=vX.Y.Z` | Tag and push a release                                                                                        |
 
 The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker-verify-manifest` Makefile targets exist exclusively for the GitHub Actions `integration-test` and `docker` jobs and are not intended for local use — use `make up` + `make start` (integration) or `make dast` / `make e2e` / `make image-*` (image workflow) locally instead.
 
@@ -146,7 +146,7 @@ Dockerfile                   Multi-stage production image (distroless, non-root)
 .hadolint.yaml               Hadolint Dockerfile linter configuration
 .mise.toml                   mise tool pins (pnpm); Node pinned via .nvmrc
 .nvmrc                       Node major version; read by mise and actions/setup-node
-pnpm-workspace.yaml          pnpm `overrides` + `onlyBuiltDependencies` (security pins; v11+ ignores the legacy package.json location)
+pnpm-workspace.yaml          pnpm `overrides` + `allowBuilds` (security pins; v11+ renamed `onlyBuiltDependencies` and ignores the legacy package.json location)
 ```
 
 ### Request Flow
@@ -241,6 +241,7 @@ A second workflow, `.github/workflows/cleanup-runs.yml`, runs weekly to delete o
 | Variable         | Default     | Purpose                                                                                                   |
 | ---------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
 | `PORT`           | `3000`      | Express listen port                                                                                       |
+| `HOST`           | `localhost` | Express bind host (also threaded through every Makefile target as `$(HOST)`)                              |
 | `DAPR_HOST`      | `localhost` | Dapr sidecar hostname used by `DaprWorkflowClient` / `WorkflowRuntime` (gRPC)                             |
 | `DAPR_GRPC_PORT` | `50001`     | Dapr sidecar gRPC port used by `DaprWorkflowClient` / `WorkflowRuntime`                                   |
 | `DAPR_HTTP_PORT` | `3500`      | Dapr sidecar HTTP port (read by `fetchPostgresDataActivity` for binding calls)                            |
@@ -275,7 +276,7 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 ### Known architectural gaps (monitor upstream)
 
 - [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
-- [ ] `axios` pulls `follow-redirects` (overridden to `>=1.16.0` in `pnpm-workspace.yaml`) — monitor axios for a release that bumps the dep and drops the override
+- [ ] `axios` pulls `follow-redirects` (overridden to `>=1.16.0` in `pnpm-workspace.yaml`) — as of axios 1.16.1 the package constrains `follow-redirects: ^1.16.0` directly, so the override is currently a no-op; safe to drop on the next dependency review (kept as defense-in-depth until then)
 - [ ] Ubuntu 26.04 LTS shipped Apr 2026 — actively track the GitHub Actions `ubuntu-latest` runner migration (runners transition in stages after the release) and bump any hardcoded `ubuntu-24.04` / `ubuntu-22.04` `runs-on:` pins when the new image is stable
 
 ## Skills
