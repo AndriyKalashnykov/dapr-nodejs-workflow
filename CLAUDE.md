@@ -276,7 +276,6 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 ### Known architectural gaps (monitor upstream)
 
 - [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
-- [ ] `axios` pulls `follow-redirects` (overridden to `>=1.16.0` in `pnpm-workspace.yaml`) — as of axios 1.16.1 the package constrains `follow-redirects: ^1.16.0` directly, so the override is currently a no-op; safe to drop on the next dependency review (kept as defense-in-depth until then)
 - [ ] Ubuntu 26.04 LTS shipped Apr 2026 — actively track the GitHub Actions `ubuntu-latest` runner migration (runners transition in stages after the release) and bump any hardcoded `ubuntu-24.04` / `ubuntu-22.04` `runs-on:` pins when the new image is stable
 
 ## Skills
