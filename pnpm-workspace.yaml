@@ -3,7 +3,6 @@
 # which would drop the security overrides below — see PR #35 regression.
 overrides:
   path-to-regexp: ">=8.4.0"
-  follow-redirects: ">=1.16.0"
   protobufjs: ">=7.5.5"
 
 # pnpm v11 replaced onlyBuiltDependencies with allowBuilds (a map of name → bool).
