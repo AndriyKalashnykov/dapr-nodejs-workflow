@@ -7,35 +7,6 @@
 
 A Dapr Workflow demo using the [Dapr JS SDK](https://github.com/dapr/js-sdk) with an Express HTTP API. The app schedules durable workflows that query PostgreSQL through Dapr bindings, with Redis as the workflow state backend.
 
-## Contents
-
-- [Quick Start](#quick-start)
-- [Prerequisites](#prerequisites)
-- [Architecture](#architecture)
-- [Usage](#usage)
-- [API](#api)
-- [Build & Package](#build--package)
-- [Testing](#testing)
-- [Available Make Targets](#available-make-targets)
-- [CI/CD](#cicd)
-- [Contributing](#contributing)
-- [License](#license)
-
-| Component       | Technology                                                                        |
-| --------------- | --------------------------------------------------------------------------------- |
-| Language        | TypeScript (pinned in `package.json`)                                             |
-| Runtime         | Node.js (LTS major pinned in `.nvmrc`)                                            |
-| Web framework   | Express                                                                           |
-| Workflow engine | Dapr Workflow via `@dapr/dapr` (pinned in `package.json`)                         |
-| State store     | Redis (via Dapr state component, image pinned by digest in `docker-compose.yaml`) |
-| Data binding    | PostgreSQL (via Dapr binding component, image pinned by digest)                   |
-| Container CLI   | Podman (Docker-compatible) + Podman Compose                                       |
-| Testing         | Vitest (unit + integration), shell-driven e2e against the production image        |
-| Linting         | ESLint + typescript-eslint, hadolint for Dockerfile, mermaid-cli for diagrams     |
-| Formatting      | Prettier                                                                          |
-| Security        | gitleaks, Trivy filesystem + image scan, `pnpm audit`, OWASP ZAP DAST             |
-| CI/CD           | GitHub Actions, Renovate, act (local CI), cosign keyless image signing            |
-
 ```mermaid
 C4Context
   title System Context — Dapr Node.js Workflow
@@ -47,6 +18,21 @@ C4Context
 
   UpdateLayoutConfig($c4ShapeInRow="2")
 ```
+
+| Component       | Technology                                                                        |
+| --------------- | --------------------------------------------------------------------------------- |
+| Language        | TypeScript (pinned in `package.json`)                                             |
+| Runtime         | Node.js (LTS major pinned in `.nvmrc`)                                            |
+| Web framework   | Express                                                                           |
+| Workflow engine | Dapr Workflow via `@dapr/dapr` (pinned in `package.json`)                         |
+| State store     | Redis (via Dapr state component, image pinned by digest in `docker-compose.yaml`) |
+| Data binding    | PostgreSQL (via Dapr binding component, image pinned by digest)                   |
+| Container CLI   | Docker or Podman (auto-detected by the Makefile)                                  |
+| Testing         | Vitest (unit + integration), shell-driven e2e against the production image        |
+| Linting         | ESLint + typescript-eslint, hadolint for Dockerfile, mermaid-cli for diagrams     |
+| Formatting      | Prettier                                                                          |
+| Security        | gitleaks, Trivy filesystem + image scan, `pnpm audit`, OWASP ZAP DAST             |
+| CI/CD           | GitHub Actions, Renovate, act (local CI), cosign keyless image signing            |
 
 ## Quick Start
 
@@ -338,16 +324,16 @@ curl -s "http://localhost:3000/workflow/$WF_ID/status" | jq .
 
 The image is signed with [cosign](https://github.com/sigstore/cosign) keyless OIDC by digest at tag-push time only — see [CI/CD § Pre-push image hardening](#pre-push-image-hardening) below.
 
-## Testing
+### Testing
 
-### Unit Tests
+#### Unit Tests
 
 ```bash
 make test          # run Vitest unit tests (activity logic + supertest HTTP)
 make test-watch    # run unit tests in watch mode
 ```
 
-### Integration Tests
+#### Integration Tests
 
 Integration tests require the full Dapr stack (PostgreSQL + Redis + Dapr sidecar):
 
@@ -360,11 +346,11 @@ make start         # start API server with Dapr
 make integration-test
 ```
 
-### End-to-end Tests
+#### End-to-end Tests
 
 `make e2e` runs the production Docker image standalone and verifies the Dapr-unreachable error path (shallow e2e, no sidecar). `make e2e-dapr` builds the image and runs it alongside a real Dapr sidecar to assert a workflow COMPLETES end-to-end. `make e2e-durability` additionally kills the app container mid-flight and asserts the workflow resumes from Redis-persisted state.
 
-### Run CI Locally
+#### Run CI Locally
 
 ```bash
 make ci            # run static-check, test, build locally
