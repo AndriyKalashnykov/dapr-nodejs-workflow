@@ -2,7 +2,7 @@ name: dapr-workflow
 
 services:
   redis:
-    image: docker.io/redis:8-alpine@sha256:ad0a6eff0a40304ab1ab4f50f0dc192d82b071e1094eac961bcb6106092f8a4e
+    image: docker.io/redis:8-alpine@sha256:09160599abd229764c0fb44cb6be640294e1d360a54b19985ab4843dcf2d90f1
     ports:
       - "6379:6379"
     restart: unless-stopped
