@@ -16,7 +16,7 @@ pnpm = "11.5.2"
 # the same pinned versions from one source of truth. Renovate's native mise
 # manager tracks these automatically (no custom regex required).
 act = "0.2.89"
-dapr = "1.17.1"
+dapr = "1.18.0"
 gitleaks = "8.30.1"
 hadolint = "2.14.0"
 trivy = "0.71.0"
