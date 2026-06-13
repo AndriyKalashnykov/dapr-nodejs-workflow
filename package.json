@@ -7,7 +7,7 @@
     "node": ">=24.14.1",
     "pnpm": ">=11.0.0"
   },
-  "packageManager": "pnpm@11.5.2",
+  "packageManager": "pnpm@11.5.3",
   "scripts": {
     "build": "tsc --outDir ./dist/"
   },
