@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 # Stage 3: Distroless runtime — no shell, no package manager, non-root
 # ============================================================================
 # renovate: datasource=docker depName=gcr.io/distroless/nodejs24-debian13
-FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:633e1463f02b25e50109325c59cfd373f404169085851b6cd2951bde1aca5623 AS runtime
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:34eb2e7dd86129508526b047950308de41663e33d059e19befb0361a12286d7c AS runtime
 
 WORKDIR /app
 
