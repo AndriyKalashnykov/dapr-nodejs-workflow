@@ -31,12 +31,20 @@ async function pollUntilCompleted(
 ): Promise<StatusResponse> {
   const deadline = Date.now() + timeoutMs;
   let last: StatusResponse | null = null;
+  let lastTransientError: string | null = null;
   while (Date.now() < deadline) {
     const res = await fetch(`${API_URL}/workflow/${id}/status`);
+    // A status poll must tolerate transient backend errors. Under concurrent
+    // scheduling Dapr can briefly return a 5xx while the workflow actor's inbox
+    // is mid-persist (e.g. "inbox key declared in metadata but missing from
+    // state store (transient store read failure or partial save?)"), and a
+    // freshly scheduled workflow can 404 for a beat before it registers. Both
+    // resolve on retry, so keep polling instead of failing the whole test on
+    // the first blip — only surface the error if the deadline is reached.
     if (res.status !== 200) {
-      throw new Error(
-        `Status request failed: ${res.status} ${await res.text()}`,
-      );
+      lastTransientError = `${res.status} ${await res.text()}`;
+      await new Promise((r) => setTimeout(r, 500));
+      continue;
     }
     last = (await res.json()) as StatusResponse;
     if (last.status === "COMPLETED") {
@@ -48,7 +56,12 @@ async function pollUntilCompleted(
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(
-    `Workflow ${id} did not COMPLETE within ${timeoutMs}ms (last status: ${last?.status})`,
+    `Workflow ${id} did not COMPLETE within ${timeoutMs}ms ` +
+      `(last status: ${last?.status}` +
+      (lastTransientError
+        ? `, last transient error: ${lastTransientError}`
+        : "") +
+      `)`,
   );
 }
 
