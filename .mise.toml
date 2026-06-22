@@ -20,4 +20,13 @@ dapr = "1.18.0"
 gitleaks = "8.30.1"
 hadolint = "2.14.0"
 trivy = "0.71.2"
-"npm:renovate" = "43.231.3"
+
+# Renovate's CLI is NOT pinned here on purpose. It is a heavyweight npm tool
+# (600+ packages) needed only by the rarely-run `make renovate` /
+# `renovate-validate` dev targets, yet every `mise install` (which `make deps`
+# — a prerequisite of install/build/lint/test — runs) would reinstall it. Worse,
+# Renovate self-bumps this pin ~daily, so the pin constantly drifts and `make
+# deps` re-fetches the whole tree on nearly every invocation (the "make deps
+# hangs" report). It is now installed lazily by those two targets via
+# `mise exec npm:renovate@$(RENOVATE_VERSION)` and version-tracked by the
+# Makefile customManager (datasource=npm depName=renovate) instead.

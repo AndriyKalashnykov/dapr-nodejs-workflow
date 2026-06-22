@@ -50,6 +50,11 @@ DAPR_RUNTIME_VERSION := 1.18.1
 MERMAID_CLI_VERSION := 11.15.0
 # renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
 ZAP_VERSION      := 2.17.0
+# Renovate CLI for the local `renovate` / `renovate-validate` dev targets only.
+# Pinned here (not in .mise.toml) so `mise install` / `make deps` never eagerly
+# fetches its 600+ npm packages; the targets install it lazily via `mise exec`.
+# renovate: datasource=npm depName=renovate
+RENOVATE_VERSION := 43.231.3
 
 # Container CLI: prefer docker, fall back to podman (local dev uses podman).
 DOCKER ?= $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null || echo docker)
@@ -560,18 +565,21 @@ ci-run: deps
 		--container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts
 
-#renovate: @ Run Renovate locally in dry-run mode (mise-installed via npm:renovate)
+#renovate: @ Run Renovate locally in dry-run mode (lazily installed via npm:renovate)
 renovate: deps
 	@# `$$GITHUB_TOKEN` is escaped — Make passes the literal `$GITHUB_TOKEN` to
 	@# `sh`, so the shell substitutes it AFTER `execve`; the token never enters
 	@# any argv. Same pattern as security.md §"Never put secret VALUES on the
 	@# command line" — env-renaming form. LOG_LEVEL stays at default (info).
+	@# `mise exec` installs npm:renovate@$(RENOVATE_VERSION) on first use and
+	@# caches it per version — kept out of the eager `make deps` toolchain.
 	@if [ -n "$$GITHUB_TOKEN" ]; then export GITHUB_COM_TOKEN="$$GITHUB_TOKEN"; fi; \
+		mise exec npm:renovate@$(RENOVATE_VERSION) -- \
 		renovate --dry-run=full --platform=local --repository-cache=reset
 
 #renovate-validate: @ Validate Renovate configuration
 renovate-validate: deps
-	@renovate --platform=local
+	@mise exec npm:renovate@$(RENOVATE_VERSION) -- renovate --platform=local
 
 .PHONY: help deps clean install build format format-check \
 	lint vulncheck secrets trivy-fs deps-prune deps-prune-check static-check \

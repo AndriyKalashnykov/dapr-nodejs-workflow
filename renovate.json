@@ -77,6 +77,11 @@
       "groupName": "pnpm"
     },
     {
+      "description": "Throttle the local Renovate CLI pin (RENOVATE_VERSION in the Makefile, custom.regex manager — the npm manager's minimumReleaseAge does not apply to it). Renovate publishes to npm several times a day; without a delay this dev-only tool spams a near-daily PR. 7 days keeps it roughly weekly.",
+      "matchDepNames": ["renovate"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
       "description": "Disable digest pinning for Makefile-tracked docker dev tools (mermaid-cli). The custom.regex manager captures version only, not digest; docker:pinDigests would otherwise generate a phantom pin-digest update Renovate cannot write back (visible on the Dependency Dashboard as the persistently-errored 'Pin minlag/mermaid-cli Docker tag to <hash>'). Production-runtime docker pins in Dockerfile/compose/workflow services keep their digest pins via the same preset; only this Makefile/custom.regex scope is exempted.",
       "matchManagers": ["custom.regex"],
       "matchFileNames": ["Makefile"],
