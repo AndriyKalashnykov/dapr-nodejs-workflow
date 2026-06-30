@@ -347,20 +347,23 @@ Run `make help` to see all targets in one list.
 
 ### Build & Quality
 
-| Target                  | Description                                                                                                         |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `make build`            | Build TypeScript to `dist/`                                                                                         |
-| `make format`           | Auto-fix formatting with Prettier                                                                                   |
-| `make format-check`     | Check formatting without modifying files                                                                            |
-| `make lint`             | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                                                         |
-| `make vulncheck`        | Audit dependencies for known vulnerabilities                                                                        |
-| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                            |
-| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                 |
-| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                          |
-| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                           |
-| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                       |
-| `make mermaid-lint`     | Validate Mermaid diagrams in `README.md` + `CLAUDE.md` via pinned `minlag/mermaid-cli`                              |
-| `make static-check`     | Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + mermaid-lint) |
+| Target                  | Description                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `make build`            | Build TypeScript to `dist/`                                                                                                          |
+| `make format`           | Auto-fix formatting with Prettier                                                                                                    |
+| `make format-check`     | Check formatting without modifying files                                                                                             |
+| `make lint`             | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                                                                          |
+| `make vulncheck`        | Audit dependencies for known vulnerabilities                                                                                         |
+| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                                             |
+| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                  |
+| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                                           |
+| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                                            |
+| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                        |
+| `make mermaid-lint`     | Validate Mermaid diagrams in `README.md` + `CLAUDE.md` via pinned `minlag/mermaid-cli`                                               |
+| `make diagrams`         | Render the C4 PlantUML sources (`docs/diagrams/*.puml`) to committed PNGs via pinned `plantuml/plantuml`                             |
+| `make diagrams-clean`   | Remove rendered diagram artefacts (`docs/diagrams/out/`)                                                                             |
+| `make diagrams-check`   | Drift gate: re-render the C4 diagrams and fail if the committed PNGs differ from current `.puml` source                              |
+| `make static-check`     | Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + diagrams-check + mermaid-lint) |
 
 ### Test
 
@@ -432,7 +435,7 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 | Job                  | Depends on                         | Steps                                                                                                                                                                                                                                                                                                                                                     |
 | -------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **changes**          | —                                  | `dorny/paths-filter` detector — emits `code=true` for code changes, `code=false` for doc-only (`*.md`, `docs/**`, image assets; `CLAUDE.md` is re-included as project config). All heavy jobs gate on this output, so doc-only PRs skip them and `ci-pass` reports green via skipped-jobs. Replaces trigger-level `paths-ignore` (Rulesets-incompatible). |
-| **static-check**     | changes                            | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check, mermaid-lint)                                                                                                                                                                                                   |
+| **static-check**     | changes                            | `make static-check` (Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check, diagrams-check, mermaid-lint)                                                                                                                                                                                   |
 | **build**            | changes, static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                                                                                                                                                                                                    |
 | **test**             | changes, static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                                                                                                                                                                                             |
 | **e2e**              | changes, build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                                                                                                                                                                                           |
