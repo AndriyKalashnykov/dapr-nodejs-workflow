@@ -285,8 +285,8 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 
 ### Known architectural gaps (monitor upstream)
 
-- [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
-- [ ] Ubuntu 26.04 LTS shipped Apr 2026 — actively track the GitHub Actions `ubuntu-latest` runner migration (runners transition in stages after the release) and bump any hardcoded `ubuntu-24.04` / `ubuntu-22.04` `runs-on:` pins when the new image is stable
+- [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed. **Verified 2026-06-30 on `@dapr/dapr` 3.18.0: still bundles `express@4.22.2` (override resolves `path-to-regexp@8.4.2` for both that and our direct `express@5`), so the override remains required.**
+- [x] Ubuntu runner pinning — **N/A: all `runs-on:` use `ubuntu-latest` (verified 2026-06-30, zero hardcoded `ubuntu-24.04`/`ubuntu-22.04` pins), so the GitHub-managed 24.04→26.04 migration is automatic; nothing to bump. Pin a specific image here only if build reproducibility ever requires it.**
 - [ ] **`PLANTUML_VERSION` (Makefile) is manually bumped, not Renovate-tracked.** The committed C4 PNGs are a generated artifact guarded by `make diagrams-check`; the hosted Renovate app can't run `make diagrams` to regenerate them, so a tracked bump PR would sit permanently RED on the drift gate under this repo's automerge. To bump: edit the `plantuml/plantuml` tag, run `make diagrams`, and commit the source + regenerated PNGs together. (Re-evaluate if a regen-and-commit-back CI workflow with an App/PAT token is ever added — a Ruleset-gated repo needs a non-`GITHUB_TOKEN` push for the commit-back.)
 
 ## Skills

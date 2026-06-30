@@ -44,7 +44,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "=== [1/5] Starting app image $IMAGE on :$APP_PORT ==="
+echo "=== [1/6] Starting app image $IMAGE on :$APP_PORT ==="
 "$DOCKER" run -d \
   --name "$CONTAINER_NAME" \
   --network host \
@@ -68,7 +68,7 @@ done
 echo "  app is serving on :$APP_PORT"
 
 echo ""
-echo "=== [2/5] Starting Dapr sidecar ($APP_ID, gRPC=$DAPR_GRPC_PORT, HTTP=$DAPR_HTTP_PORT) ==="
+echo "=== [2/6] Starting Dapr sidecar ($APP_ID, gRPC=$DAPR_GRPC_PORT, HTTP=$DAPR_HTTP_PORT) ==="
 dapr run \
   --app-id "$APP_ID" \
   --app-port "$APP_PORT" \
@@ -94,7 +94,7 @@ done
 echo "  sidecar healthy"
 
 echo ""
-echo "=== [3/5] POST /process-payload (delayMs=0) ==="
+echo "=== [3/6] POST /process-payload (delayMs=0) ==="
 SCHEDULE_RESP=$(curl -sf -X POST "http://$HOST:$APP_PORT/process-payload" \
   -H "Content-Type: application/json" \
   -d '{"delayMs":0,"payload":{"name":"e2e-dapr"}}')
@@ -104,7 +104,7 @@ WF_ID=$(printf '%s' "$SCHEDULE_RESP" | python3 -c 'import sys,json; print(json.l
 echo "  workflow id: $WF_ID"
 
 echo ""
-echo "=== [4/5] Polling /workflow/$WF_ID/status until COMPLETED (timeout ${COMPLETION_TIMEOUT}s) ==="
+echo "=== [4/6] Polling /workflow/$WF_ID/status until COMPLETED (timeout ${COMPLETION_TIMEOUT}s) ==="
 DEADLINE=$(( $(date +%s) + COMPLETION_TIMEOUT ))
 STATUS=""
 OUTPUT=""
@@ -132,7 +132,7 @@ if [ "$STATUS" != "COMPLETED" ]; then
 fi
 
 echo ""
-echo "=== [5/5] Asserting output shape ==="
+echo "=== [5/6] Asserting output shape ==="
 echo "  output: $OUTPUT"
 
 # JSON-parse + structural assertions. `grep -q '"processed":true'` would pass
@@ -167,6 +167,24 @@ PYSCRIPT_EOF
 )
 printf '%s' "$OUTPUT" | python3 -c "$PYSCRIPT"
 echo "  PASS: payload enriched by modifyPayloadActivity + postgres binding round-tripped"
+
+echo ""
+echo "=== [6/6] GET /db-health (own workflow + Postgres round-trip via the prod image) ==="
+# /db-health has its own logic path (waitForWorkflowCompletion + JSON.parse of the
+# binding result) not exercised by the /process-payload flow above — assert it
+# end-to-end through the production image, not only at the integration layer.
+DB_HEALTH=$(curl -sf "http://$HOST:$APP_PORT/db-health")
+echo "  response: $DB_HEALTH"
+DBH_PYSCRIPT=$(cat <<'DBH_EOF'
+import json, sys
+body = json.loads(sys.stdin.read())
+assert body.get("status") == "success", "db-health status not success: " + repr(body.get("status"))
+assert body.get("dbConnection") == "working", "dbConnection not working: " + repr(body.get("dbConnection"))
+print("  db-health OK")
+DBH_EOF
+)
+printf '%s' "$DB_HEALTH" | python3 -c "$DBH_PYSCRIPT"
+echo "  PASS: /db-health reports a working Postgres binding through the prod image"
 
 echo ""
 echo "e2e-dapr tests passed"
