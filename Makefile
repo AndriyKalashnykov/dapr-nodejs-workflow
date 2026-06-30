@@ -187,12 +187,18 @@ $(DIAGRAM_STAMP):
 
 #diagrams-clean: @ Remove rendered diagram artefacts
 diagrams-clean:
-	rm -rf $(DIAGRAM_DIR)/out
+	@rm -rf $(DIAGRAM_DIR)/out
 
 #diagrams-check: @ Verify committed diagrams match current PlantUML source (CI drift gate)
 diagrams-check: diagrams
-	@git diff --exit-code -- $(DIAGRAM_DIR)/out || \
-		{ echo "ERROR: Diagram source changed but rendered PNGs not updated. Run 'make diagrams' and commit."; exit 1; }
+	@# `git diff --exit-code` catches MODIFIED tracked PNGs; the porcelain check
+	@# also catches a brand-new .puml whose freshly-rendered PNG is still UNTRACKED
+	@# (a new diagram added without committing its render would otherwise pass green).
+	@if [ -n "$$(git status --porcelain --untracked-files=all -- $(DIAGRAM_DIR)/out)" ]; then \
+		echo "ERROR: Diagram source changed but rendered PNGs not updated/committed. Run 'make diagrams' and commit."; \
+		git status --short --untracked-files=all -- $(DIAGRAM_DIR)/out; \
+		exit 1; \
+	fi
 
 #mermaid-lint: @ Validate Mermaid diagrams in README.md and CLAUDE.md via pinned mermaid-cli
 mermaid-lint: deps
@@ -252,8 +258,23 @@ components-check:
 	if [ "$$fail" -eq 0 ]; then echo "components-check passed."; fi; \
 	exit $$fail
 
-#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + diagrams-check + mermaid-lint)
-static-check: lint vulncheck secrets trivy-fs deps-prune-check components-check diagrams-check mermaid-lint
+#check-node-alignment: @ Fail if the Node major drifts across .nvmrc, .mise.toml, and Dockerfile
+check-node-alignment:
+	@set -euo pipefail; \
+	ref="$(NODE_VERSION)"; \
+	mise=$$(sed -nE 's/^node = "([0-9]+).*/\1/p' .mise.toml); \
+	df_slim=$$(sed -nE 's/^FROM node:([0-9]+).*/\1/p' Dockerfile | head -1); \
+	df_distroless=$$(sed -nE 's#.*distroless/nodejs([0-9]+).*#\1#p' Dockerfile | head -1); \
+	fail=0; \
+	for pair in ".mise.toml=$$mise" "Dockerfile(node)=$$df_slim" "Dockerfile(distroless)=$$df_distroless"; do \
+		name=$${pair%%=*}; val=$${pair#*=}; \
+		if [ "$$val" != "$$ref" ]; then echo "FAIL: Node major in $$name ($$val) != .nvmrc ($$ref)"; fail=1; fi; \
+	done; \
+	if [ "$$fail" -eq 0 ]; then echo "check-node-alignment: Node major $$ref aligned across .nvmrc, .mise.toml, Dockerfile."; fi; \
+	exit $$fail
+
+#static-check: @ Composite quality gate (check-node-alignment + lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + diagrams-check + mermaid-lint)
+static-check: check-node-alignment lint vulncheck secrets trivy-fs deps-prune-check components-check diagrams-check mermaid-lint
 	@echo "Static check passed."
 
 #test: @ Run unit tests
@@ -630,5 +651,5 @@ renovate-validate: deps
 	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
 	image-build image-run image-stop e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
-	components-check mermaid-lint \
+	components-check diagrams diagrams-clean diagrams-check check-node-alignment mermaid-lint \
 	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate
