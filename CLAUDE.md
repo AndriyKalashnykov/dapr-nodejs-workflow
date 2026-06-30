@@ -45,24 +45,25 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Build & Quality
 
-| Target                  | Description                                                                                                                                                                     |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make build`            | Compile TypeScript to `dist/`                                                                                                                                                   |
-| `make format`           | Auto-fix formatting with Prettier                                                                                                                                               |
-| `make format-check`     | Check formatting without modifying files                                                                                                                                        |
-| `make lint`             | Run Prettier check, ESLint (zero warnings), `tsc --noEmit`, and hadolint on the Dockerfile                                                                                      |
-| `make vulncheck`        | Audit dependencies for known vulnerabilities (`pnpm audit --audit-level=moderate`)                                                                                              |
-| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                                                                                        |
-| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                                                             |
-| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                                                                                      |
-| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                                                                                       |
-| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                                                                   |
-| `make mermaid-lint`     | Validate Mermaid diagrams in `README.md` and `CLAUDE.md` via pinned `minlag/mermaid-cli` — same engine GitHub renders with                                                      |
-| `make diagrams`         | Render the C4 PlantUML sources (`docs/diagrams/*.puml`) to committed PNGs via pinned `plantuml/plantuml`                                                                        |
-| `make diagrams-clean`   | Remove rendered diagram artefacts (`docs/diagrams/out/`)                                                                                                                        |
-| `make diagrams-check`   | Drift gate: re-render the C4 diagrams and fail if the committed PNGs differ from current `.puml` source                                                                         |
-| `make static-check`     | Composite quality gate: `lint` + `vulncheck` + `secrets` + `trivy-fs` + `deps-prune-check` + `components-check` + `diagrams-check` + `mermaid-lint`. CI calls this single step. |
-| `make check`            | Full local verification: `static-check` + `test` + `build` (static-check runs lint which runs prettier --check)                                                                 |
+| Target                      | Description                                                                                                                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make build`                | Compile TypeScript to `dist/`                                                                                                                                                                            |
+| `make format`               | Auto-fix formatting with Prettier                                                                                                                                                                        |
+| `make format-check`         | Check formatting without modifying files                                                                                                                                                                 |
+| `make lint`                 | Run Prettier check, ESLint (zero warnings), `tsc --noEmit`, and hadolint on the Dockerfile                                                                                                               |
+| `make vulncheck`            | Audit dependencies for known vulnerabilities (`pnpm audit --audit-level=moderate`)                                                                                                                       |
+| `make secrets`              | Scan for hardcoded secrets with gitleaks                                                                                                                                                                 |
+| `make trivy-fs`             | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                                                                                      |
+| `make deps-prune`           | Show unused/redundant Node.js dependencies                                                                                                                                                               |
+| `make deps-prune-check`     | Verify no prunable dependencies (CI gate)                                                                                                                                                                |
+| `make components-check`     | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                                                                                            |
+| `make mermaid-lint`         | Validate Mermaid diagrams in `README.md` and `CLAUDE.md` via pinned `minlag/mermaid-cli` — same engine GitHub renders with                                                                               |
+| `make diagrams`             | Render the C4 PlantUML sources (`docs/diagrams/*.puml`) to committed PNGs via pinned `plantuml/plantuml`                                                                                                 |
+| `make diagrams-clean`       | Remove rendered diagram artefacts (`docs/diagrams/out/`)                                                                                                                                                 |
+| `make diagrams-check`       | Drift gate: re-render the C4 diagrams and fail if the committed PNGs differ from current `.puml` source                                                                                                  |
+| `make check-node-alignment` | Drift gate: fails if the Node major disagrees across `.nvmrc`, `.mise.toml`, and the `Dockerfile`                                                                                                        |
+| `make static-check`         | Composite quality gate: `check-node-alignment` + `lint` + `vulncheck` + `secrets` + `trivy-fs` + `deps-prune-check` + `components-check` + `diagrams-check` + `mermaid-lint`. CI calls this single step. |
+| `make check`                | Full local verification: `static-check` + `test` + `build` (static-check runs lint which runs prettier --check)                                                                                          |
 
 ### Infrastructure
 
@@ -227,7 +228,7 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, and is reusable via `workflow_call`. Jobs:
 
 - **changes**: lightweight detector job using `dorny/paths-filter` that emits `code=true` for code changes and `code=false` for doc-only changes (`*.md`, `docs/**`, image assets, etc., with `CLAUDE.md` re-included as project config). Heavy jobs gate on `needs.changes.outputs.code == 'true'`, so doc-only PRs skip them and `ci-pass` reports green via skipped-jobs (compatible with the active Repository Ruleset's required-check gate). Replaces trigger-level `paths-ignore`, which deadlocks against Rulesets.
-- **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + hadolint + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck + `components-check` (local vs CI Dapr component drift gate) + `diagrams-check` (C4 PlantUML source vs committed PNG drift gate) + `mermaid-lint` — single composite quality gate
+- **static-check**: `make static-check` — `check-node-alignment` (Node major drift gate across `.nvmrc`/`.mise.toml`/`Dockerfile`) + Prettier check + ESLint + `tsc --noEmit` + hadolint + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck + `components-check` (local vs CI Dapr component drift gate) + `diagrams-check` (C4 PlantUML source vs committed PNG drift gate) + `mermaid-lint` — single composite quality gate
 - **build**: `make build` + `make smoke` (HTTP smoke test against the built server, no Dapr)
 - **test**: `make test` (Vitest unit tests — activity unit tests, supertest-based HTTP tests, `checkPort` helper)
 - **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling (shallow e2e; no Dapr sidecar)

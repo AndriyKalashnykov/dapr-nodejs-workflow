@@ -82,8 +82,13 @@
       "minimumReleaseAge": "7 days"
     },
     {
-      "description": "Disable digest pinning for Makefile-tracked docker dev tools (mermaid-cli). The custom.regex manager captures version only, not digest; docker:pinDigests would otherwise generate a phantom pin-digest update Renovate cannot write back (visible on the Dependency Dashboard as the persistently-errored 'Pin minlag/mermaid-cli Docker tag to <hash>'). Production-runtime docker pins in Dockerfile/compose/workflow services keep their digest pins via the same preset; only this Makefile/custom.regex scope is exempted.",
-      "matchManagers": ["custom.regex"],
+      "description": "Group the Node major across the mise pin (.mise.toml) and the Dockerfile `node` base image so a major bump (e.g. 24->25) moves as ONE PR rather than splitting across managers. `make check-node-alignment` (first prereq of static-check) is the deterministic backstop. Note: the distroless runtime image (gcr.io/distroless/nodejs<major>) carries the major in its image NAME, not a tag, so it is not depName 'node' and cannot be grouped here — the alignment guard is what catches it. .nvmrc is not Renovate-managed (no 'nvm' in enabledManagers), so it is bumped manually and guarded by the same check.",
+      "matchManagers": ["mise", "dockerfile"],
+      "matchDepNames": ["node"],
+      "groupName": "node"
+    },
+    {
+      "description": "Disable digest pinning for Makefile-tracked docker dev tools (mermaid-cli). The custom.regex manager captures version only, not digest; docker:pinDigests would otherwise generate a phantom pin-digest update Renovate cannot write back (visible on the Dependency Dashboard as the persistently-errored 'Pin minlag/mermaid-cli Docker tag to <hash>'). Scoped by file + datasource (NOT matchManagers): Renovate may surface the custom.regex manager as 'regex', which would silently void a matchManagers:['custom.regex'] AND-combined rule; matchFileNames=Makefile + matchDatasources=docker is the robust, unambiguous scope (the Makefile is the only docker-datasource source outside the Dockerfile). Production-runtime docker pins in Dockerfile/compose/workflow services keep their digest pins via the same preset; only this Makefile docker scope is exempted.",
       "matchFileNames": ["Makefile"],
       "matchDatasources": ["docker"],
       "pinDigests": false
@@ -95,7 +100,7 @@
       "description": "Update Makefile tool versions via inline renovate comments. The extractVersion group is required so that annotations like `extractVersion=^v(?<version>.*)$` (used on ZAP_VERSION) do not silently drop the constant — without the group, the regex cannot traverse past the extractVersion token and the dep extracts zero entries.",
       "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)(?: extractVersion=(?<extractVersion>[^\\s]+))?(?: registryUrl=(?<registryUrl>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\n[A-Z_]+\\s*[?:]?=\\s*(?<currentValue>[^\\s]+)"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)(?: extractVersion=(?<extractVersion>[^\\s]+))?(?: registryUrl=(?<registryUrl>[^\\s]+))?(?: versioning=(?<versioning>[^\\s]+))?\\n[A-Z0-9_]+\\s*[?:]?=\\s*(?<currentValue>[^\\s]+)"
       ]
     },
     {
@@ -103,7 +108,7 @@
       "description": "Update GitHub Actions workflow env vars via inline renovate comments (e.g. ZAP_VERSION)",
       "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)( extractVersion=(?<extractVersion>[^\\s]+))?( versioning=(?<versioning>[^\\s]+))?\\n\\s*[A-Z_]+:\\s*[\"']?(?<currentValue>[^\\s\"']+)"
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+)( extractVersion=(?<extractVersion>[^\\s]+))?( versioning=(?<versioning>[^\\s]+))?\\n\\s*[A-Z0-9_]+:\\s*[\"']?(?<currentValue>[^\\s\"']+)"
       ]
     },
     {
