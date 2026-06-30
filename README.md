@@ -7,32 +7,22 @@
 
 A Dapr Workflow demo using the [Dapr JS SDK](https://github.com/dapr/js-sdk) with an Express HTTP API. The app schedules durable workflows that query PostgreSQL through Dapr bindings, with Redis as the workflow state backend.
 
-```mermaid
-C4Context
-  title System Context — Dapr Node.js Workflow
+<p align="center"><img src="docs/diagrams/out/c4-context.png" alt="C4 System Context — API Consumer schedules and polls workflows on the Dapr Node.js Workflow service over HTTPS/JSON" width="300"></p>
 
-  Person(user, "API Consumer", "HTTP client calling REST endpoints")
-  System(sys, "Dapr Node.js Workflow", "Durable workflow service: schedules workflows that query Postgres via Dapr binding, with Redis-backed state for crash-safe replay")
-
-  Rel(user, sys, "Schedules and polls workflows", "HTTPS / JSON")
-
-  UpdateLayoutConfig($c4ShapeInRow="2")
-```
-
-| Component       | Technology                                                                        |
-| --------------- | --------------------------------------------------------------------------------- |
-| Language        | TypeScript (pinned in `package.json`)                                             |
-| Runtime         | Node.js (LTS major pinned in `.nvmrc`)                                            |
-| Web framework   | Express                                                                           |
-| Workflow engine | Dapr Workflow via `@dapr/dapr` (pinned in `package.json`)                         |
-| State store     | Redis (via Dapr state component, image pinned by digest in `docker-compose.yaml`) |
-| Data binding    | PostgreSQL (via Dapr binding component, image pinned by digest)                   |
-| Container CLI   | Docker or Podman (auto-detected by the Makefile)                                  |
-| Testing         | Vitest (unit + integration), shell-driven e2e against the production image        |
-| Linting         | ESLint + typescript-eslint, hadolint for Dockerfile, mermaid-cli for diagrams     |
-| Formatting      | Prettier                                                                          |
-| Security        | gitleaks, Trivy filesystem + image scan, `pnpm audit`, OWASP ZAP DAST             |
-| CI/CD           | GitHub Actions, Renovate, act (local CI), cosign keyless image signing            |
+| Component       | Technology                                                                               |
+| --------------- | ---------------------------------------------------------------------------------------- |
+| Language        | TypeScript (pinned in `package.json`)                                                    |
+| Runtime         | Node.js (LTS major pinned in `.nvmrc`)                                                   |
+| Web framework   | Express                                                                                  |
+| Workflow engine | Dapr Workflow via `@dapr/dapr` (pinned in `package.json`)                                |
+| State store     | Redis (via Dapr state component, image pinned by digest in `docker-compose.yaml`)        |
+| Data binding    | PostgreSQL (via Dapr binding component, image pinned by digest)                          |
+| Container CLI   | Docker or Podman (auto-detected by the Makefile)                                         |
+| Testing         | Vitest (unit + integration), shell-driven e2e against the production image               |
+| Linting         | ESLint + typescript-eslint, hadolint for Dockerfile, mermaid-cli + PlantUML for diagrams |
+| Formatting      | Prettier                                                                                 |
+| Security        | gitleaks, Trivy filesystem + image scan, `pnpm audit`, OWASP ZAP DAST                    |
+| CI/CD           | GitHub Actions, Renovate, act (local CI), cosign keyless image signing                   |
 
 ## Quick Start
 
@@ -75,31 +65,14 @@ make deps
 
 ### Container View
 
-```mermaid
-C4Container
-  title Container View — Dapr Node.js Workflow
-
-  Person(user, "API Consumer")
-
-  System_Boundary(sys, "Dapr Node.js Workflow") {
-    Container(api, "Express API", "Node.js, TypeScript, Express", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
-    Container(sidecar, "Dapr Sidecar", "daprd", "Workflow engine, component bindings, state store client")
-    ContainerDb(redis, "Redis", "Redis", "Dapr state store — durable workflow state for replay on restart")
-    ContainerDb(postgres, "PostgreSQL", "PostgreSQL", "Queried by fetchPostgresDataActivity via Dapr binding")
-  }
-
-  Rel(user, api, "Schedule / poll workflow", "HTTPS / JSON")
-  Rel(api, sidecar, "Workflow client + runtime (gRPC :50001)<br/>Binding invocation from activities (HTTP :3500)", "")
-  Rel(sidecar, redis, "Persist workflow state", "TCP :6379")
-  Rel(sidecar, postgres, "bindings.postgres", "TCP :5432")
-
-  UpdateLayoutConfig($c4ShapeInRow="3")
-```
+<img src="docs/diagrams/out/c4-container.png" alt="C4 Container View — API Consumer calls the Express API, which drives the Dapr sidecar; the sidecar persists workflow state to Redis and queries PostgreSQL via the bindings.postgres component" width="800">
 
 - **Express API** + **WorkflowRuntime** run in the same Node process. The API handlers are thin — they schedule workflows via `DaprWorkflowClient` over gRPC, and the sidecar's scheduler streams activity work items back to the runtime over the same gRPC connection.
 - **Dapr Sidecar** (`daprd`) is the orchestrator. The runtime version is pinned via `DAPR_RUNTIME_VERSION` in the `Makefile` (Renovate-tracked). All state persistence, activity dispatch, and component I/O go through it.
 - **Redis** stores durable workflow state. Killing the app container mid-run and restarting it replays the workflow from Redis-persisted state — verified end-to-end by `make e2e-durability`.
 - **PostgreSQL** is _not_ used directly by the app. The `fetchPostgresDataActivity` POSTs a SQL query to the sidecar's binding HTTP API; the sidecar resolves it via the `bindings.postgres` component and returns rows. See [ADR-0001: Query PostgreSQL via Dapr binding](docs/adr/0001-postgres-via-dapr-binding.md) for the rationale.
+
+> The C4 Context and Container diagrams are [C4-PlantUML](https://github.com/plantuml-stdlib/C4-PlantUML) sources in [`docs/diagrams/`](docs/diagrams/) (`c4-context.puml`, `c4-container.puml`); regenerate the committed PNGs with `make diagrams`. The sequence diagrams below are inline Mermaid that GitHub renders directly.
 
 ### Workflow Sequence — `POST /process-payload` through `GET /workflow/:id/status`
 

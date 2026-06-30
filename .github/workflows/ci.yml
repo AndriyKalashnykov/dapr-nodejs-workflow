@@ -59,6 +59,10 @@ jobs:
             code:
               - '!(**.md|docs/**|specs/**|LICENSE|.gitignore|.claudeignore|.claude/**|benchmarks/**|**.png|**.jpg|**.gif|**.svg)'
               - 'CLAUDE.md'
+              # PlantUML C4 sources drive a committed-PNG drift gate (make
+              # diagrams-check in static-check); re-include them so a .puml-only
+              # change is classified as code and the gate actually runs.
+              - 'docs/diagrams/**/*.puml'
 
   static-check:
     needs: [changes]

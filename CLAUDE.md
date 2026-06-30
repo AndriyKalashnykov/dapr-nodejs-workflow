@@ -45,21 +45,24 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Build & Quality
 
-| Target                  | Description                                                                                                                                                  |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `make build`            | Compile TypeScript to `dist/`                                                                                                                                |
-| `make format`           | Auto-fix formatting with Prettier                                                                                                                            |
-| `make format-check`     | Check formatting without modifying files                                                                                                                     |
-| `make lint`             | Run Prettier check, ESLint (zero warnings), `tsc --noEmit`, and hadolint on the Dockerfile                                                                   |
-| `make vulncheck`        | Audit dependencies for known vulnerabilities (`pnpm audit --audit-level=moderate`)                                                                           |
-| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                                                                     |
-| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                                          |
-| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                                                                   |
-| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                                                                    |
-| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                                                |
-| `make mermaid-lint`     | Validate Mermaid diagrams in `README.md` and `CLAUDE.md` via pinned `minlag/mermaid-cli` — same engine GitHub renders with                                   |
-| `make static-check`     | Composite quality gate: `lint` + `vulncheck` + `secrets` + `trivy-fs` + `deps-prune-check` + `components-check` + `mermaid-lint`. CI calls this single step. |
-| `make check`            | Full local verification: `static-check` + `test` + `build` (static-check runs lint which runs prettier --check)                                              |
+| Target                  | Description                                                                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make build`            | Compile TypeScript to `dist/`                                                                                                                                                   |
+| `make format`           | Auto-fix formatting with Prettier                                                                                                                                               |
+| `make format-check`     | Check formatting without modifying files                                                                                                                                        |
+| `make lint`             | Run Prettier check, ESLint (zero warnings), `tsc --noEmit`, and hadolint on the Dockerfile                                                                                      |
+| `make vulncheck`        | Audit dependencies for known vulnerabilities (`pnpm audit --audit-level=moderate`)                                                                                              |
+| `make secrets`          | Scan for hardcoded secrets with gitleaks                                                                                                                                        |
+| `make trivy-fs`         | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                                                             |
+| `make deps-prune`       | Show unused/redundant Node.js dependencies                                                                                                                                      |
+| `make deps-prune-check` | Verify no prunable dependencies (CI gate)                                                                                                                                       |
+| `make components-check` | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                                                                   |
+| `make mermaid-lint`     | Validate Mermaid diagrams in `README.md` and `CLAUDE.md` via pinned `minlag/mermaid-cli` — same engine GitHub renders with                                                      |
+| `make diagrams`         | Render the C4 PlantUML sources (`docs/diagrams/*.puml`) to committed PNGs via pinned `plantuml/plantuml`                                                                        |
+| `make diagrams-clean`   | Remove rendered diagram artefacts (`docs/diagrams/out/`)                                                                                                                        |
+| `make diagrams-check`   | Drift gate: re-render the C4 diagrams and fail if the committed PNGs differ from current `.puml` source                                                                         |
+| `make static-check`     | Composite quality gate: `lint` + `vulncheck` + `secrets` + `trivy-fs` + `deps-prune-check` + `components-check` + `diagrams-check` + `mermaid-lint`. CI calls this single step. |
+| `make check`            | Full local verification: `static-check` + `test` + `build` (static-check runs lint which runs prettier --check)                                                                 |
 
 ### Infrastructure
 
@@ -137,6 +140,12 @@ components/                  Dapr component configs -- local dev
 dapr/ci/                     Dapr component configs -- CI
   postgres.yaml              bindings.postgres (password: postgres)
   redis.yaml                 state.redis (localhost:6379)
+docs/
+  diagrams/                  C4 architecture diagrams (PlantUML source + committed PNGs)
+    c4-context.puml          System Context — rendered to out/c4-context.png (README hero)
+    c4-container.puml        Container View — rendered to out/c4-container.png
+    out/                     Rendered PNGs (committed; render-trigger stamp gitignored)
+  adr/                       Architecture Decision Records
 db/                          Schema and seed data
   baseline_ddl.sql           Table schema (users table)
   baseline_dml.sql           Seed data
@@ -178,7 +187,7 @@ sequenceDiagram
   A-->>U: 200 { status, output }
 ```
 
-Architecture diagrams (System Context, Container view, Workflow Sequence) live in `README.md` under `## Architecture` — GitHub renders Mermaid blocks inline, so there is no separate image asset to maintain.
+Architecture diagrams live in `README.md` under `## Architecture`. The C4 **Context** and **Container** views are [C4-PlantUML](https://github.com/plantuml-stdlib/C4-PlantUML) sources in `docs/diagrams/*.puml`, rendered to committed PNGs by `make diagrams` and guarded against drift by `make diagrams-check` (in `static-check`). The **Workflow Sequence** and **Durability** diagrams are inline Mermaid that GitHub renders directly (validated by `make mermaid-lint`). `PLANTUML_VERSION` in the `Makefile` is intentionally not Renovate-tracked — see the Upgrade Backlog.
 
 ### Dapr Sidecar Pattern
 
@@ -218,7 +227,7 @@ The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first
 The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, and is reusable via `workflow_call`. Jobs:
 
 - **changes**: lightweight detector job using `dorny/paths-filter` that emits `code=true` for code changes and `code=false` for doc-only changes (`*.md`, `docs/**`, image assets, etc., with `CLAUDE.md` re-included as project config). Heavy jobs gate on `needs.changes.outputs.code == 'true'`, so doc-only PRs skip them and `ci-pass` reports green via skipped-jobs (compatible with the active Repository Ruleset's required-check gate). Replaces trigger-level `paths-ignore`, which deadlocks against Rulesets.
-- **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + hadolint + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck + `components-check` (local vs CI Dapr component drift gate) + `mermaid-lint` — single composite quality gate
+- **static-check**: `make static-check` — Prettier check + ESLint + `tsc --noEmit` + hadolint + `pnpm audit` + gitleaks + Trivy filesystem scan + depcheck + `components-check` (local vs CI Dapr component drift gate) + `diagrams-check` (C4 PlantUML source vs committed PNG drift gate) + `mermaid-lint` — single composite quality gate
 - **build**: `make build` + `make smoke` (HTTP smoke test against the built server, no Dapr)
 - **test**: `make test` (Vitest unit tests — activity unit tests, supertest-based HTTP tests, `checkPort` helper)
 - **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling (shallow e2e; no Dapr sidecar)
@@ -277,6 +286,7 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 
 - [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed
 - [ ] Ubuntu 26.04 LTS shipped Apr 2026 — actively track the GitHub Actions `ubuntu-latest` runner migration (runners transition in stages after the release) and bump any hardcoded `ubuntu-24.04` / `ubuntu-22.04` `runs-on:` pins when the new image is stable
+- [ ] **`PLANTUML_VERSION` (Makefile) is manually bumped, not Renovate-tracked.** The committed C4 PNGs are a generated artifact guarded by `make diagrams-check`; the hosted Renovate app can't run `make diagrams` to regenerate them, so a tracked bump PR would sit permanently RED on the drift gate under this repo's automerge. To bump: edit the `plantuml/plantuml` tag, run `make diagrams`, and commit the source + regenerated PNGs together. (Re-evaluate if a regen-and-commit-back CI workflow with an App/PAT token is ever added — a Ruleset-gated repo needs a non-`GITHUB_TOKEN` push for the commit-back.)
 
 ## Skills
 

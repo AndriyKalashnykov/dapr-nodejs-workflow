@@ -142,3 +142,10 @@ vite.config.ts.timestamp-*
 
 # DAST reports
 zap-output/
+
+# Architecture diagrams: the bare `out` rule above (Next.js build output) would
+# otherwise ignore docs/diagrams/out/ — the committed PlantUML PNGs must be tracked
+# so github.com renders them without a build step. The render-trigger stamp is not.
+!docs/diagrams/out/
+!docs/diagrams/out/**
+docs/diagrams/out/.plantuml-*.stamp
