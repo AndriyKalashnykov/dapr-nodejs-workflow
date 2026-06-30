@@ -48,6 +48,13 @@ NODE_VERSION     := $(shell cat .nvmrc 2>/dev/null || echo 24)
 DAPR_RUNTIME_VERSION := 1.18.1
 # renovate: datasource=docker depName=minlag/mermaid-cli
 MERMAID_CLI_VERSION := 11.16.0
+# PlantUML renderer for the C4 architecture diagrams (docs/diagrams/*.puml).
+# Deliberately NOT Renovate-tracked: the committed PNGs are a generated artifact
+# guarded by `make diagrams-check`, and the hosted Renovate app cannot run
+# `make diagrams` to regenerate them — so under this repo's automerge a bump PR
+# would sit permanently RED on the drift gate. Bump manually (see CLAUDE.md
+# "Upgrade Backlog"): edit the tag, run `make diagrams`, commit source + PNGs.
+PLANTUML_VERSION := 1.2026.6
 # renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
 ZAP_VERSION      := 2.17.0
 # Renovate CLI for the local `renovate` / `renovate-validate` dev targets only.
@@ -151,6 +158,42 @@ deps-prune-check: install
 	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" --quiet \
 		|| { echo "ERROR: unused dependencies found. Run 'make deps-prune' to see them."; exit 1; }
 
+# --- Architecture diagrams (PlantUML C4) ---
+DIAGRAM_DIR   := docs/diagrams
+DIAGRAM_SRC   := $(wildcard $(DIAGRAM_DIR)/*.puml)
+DIAGRAM_OUT   := $(patsubst $(DIAGRAM_DIR)/%.puml,$(DIAGRAM_DIR)/out/%.png,$(DIAGRAM_SRC))
+# Version-stamped sentinel: a PLANTUML_VERSION bump changes the stamp's NAME, so
+# the previous stamp no longer satisfies the prereq and every PNG re-renders.
+# Without it, `make diagrams` would no-op on a renderer bump (no .puml changed)
+# and diagrams-check would pass on stale PNGs. Gitignored (a trigger, not an artifact).
+DIAGRAM_STAMP := $(DIAGRAM_DIR)/out/.plantuml-$(PLANTUML_VERSION).stamp
+
+#diagrams: @ Render PlantUML C4 architecture diagrams (docs/diagrams/*.puml) to PNG
+diagrams: $(DIAGRAM_OUT)
+
+$(DIAGRAM_DIR)/out/%.png: $(DIAGRAM_DIR)/%.puml $(DIAGRAM_STAMP)
+	@command -v $(DOCKER) >/dev/null 2>&1 || { echo "ERROR: $(DOCKER) is not on PATH (needed to pull plantuml/plantuml)"; exit 1; }
+	@mkdir -p $(DIAGRAM_DIR)/out
+	$(DOCKER) run --rm -v "$(CURDIR)/$(DIAGRAM_DIR):/work" -w /work \
+		--user $$(id -u):$$(id -g) \
+		-e HOME=/tmp -e _JAVA_OPTIONS=-Duser.home=/tmp \
+		plantuml/plantuml:$(PLANTUML_VERSION) \
+		-tpng -o out $(notdir $<)
+
+$(DIAGRAM_STAMP):
+	@mkdir -p $(DIAGRAM_DIR)/out
+	@rm -f $(DIAGRAM_DIR)/out/.plantuml-*.stamp
+	@touch $@
+
+#diagrams-clean: @ Remove rendered diagram artefacts
+diagrams-clean:
+	rm -rf $(DIAGRAM_DIR)/out
+
+#diagrams-check: @ Verify committed diagrams match current PlantUML source (CI drift gate)
+diagrams-check: diagrams
+	@git diff --exit-code -- $(DIAGRAM_DIR)/out || \
+		{ echo "ERROR: Diagram source changed but rendered PNGs not updated. Run 'make diagrams' and commit."; exit 1; }
+
 #mermaid-lint: @ Validate Mermaid diagrams in README.md and CLAUDE.md via pinned mermaid-cli
 mermaid-lint: deps
 	@command -v $(DOCKER) >/dev/null 2>&1 || { echo "ERROR: $(DOCKER) is not on PATH (needed to pull minlag/mermaid-cli)"; exit 1; }
@@ -209,8 +252,8 @@ components-check:
 	if [ "$$fail" -eq 0 ]; then echo "components-check passed."; fi; \
 	exit $$fail
 
-#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + mermaid-lint)
-static-check: lint vulncheck secrets trivy-fs deps-prune-check components-check mermaid-lint
+#static-check: @ Composite quality gate (lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + diagrams-check + mermaid-lint)
+static-check: lint vulncheck secrets trivy-fs deps-prune-check components-check diagrams-check mermaid-lint
 	@echo "Static check passed."
 
 #test: @ Run unit tests

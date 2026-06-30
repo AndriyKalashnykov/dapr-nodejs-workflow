@@ -1,0 +1,41 @@
+@startuml c4-container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.11.0/C4_Container.puml
+
+' Landscape layout: C4-PlantUML defaults to top-down, which stacks this view into
+' a tall portrait tower. Left-to-right renders wider and shorter — embeds better on
+' a wide README and keeps the rendered height reasonable at the capped <img width>.
+LAYOUT_LEFT_RIGHT()
+
+' Modern flat styling: no shadows, sharper corners, clean sans-serif, modern palette.
+skinparam backgroundColor #FAFAFA
+skinparam shadowing false
+skinparam roundCorner 4
+skinparam defaultFontName "Inter, Helvetica, Arial, sans-serif"
+skinparam defaultFontSize 13
+skinparam ArrowColor #37474F
+skinparam ArrowThickness 1.2
+skinparam rectangleBorderThickness 1.3
+
+UpdateElementStyle("person",       $fontColor="#FFFFFF", $bgColor="#0F766E", $borderColor="#134E4A")
+UpdateElementStyle("container",    $fontColor="#FFFFFF", $bgColor="#2563EB", $borderColor="#1E3A8A")
+UpdateElementStyle("container_db", $fontColor="#FFFFFF", $bgColor="#7C3AED", $borderColor="#4C1D95")
+UpdateBoundaryStyle($bgColor="#F1F5F9", $borderColor="#94A3B8", $fontColor="#1E293B")
+
+title Container View — Dapr Node.js Workflow
+
+Person(user, "API Consumer")
+
+System_Boundary(sys, "Dapr Node.js Workflow") {
+  Container(api, "Express API", "Node.js, TypeScript, Express", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
+  Container(sidecar, "Dapr Sidecar", "daprd", "Workflow engine, component bindings, state store client")
+  ContainerDb(redis, "Redis", "Redis", "Dapr state store — durable workflow state for replay on restart")
+  ContainerDb(postgres, "PostgreSQL", "PostgreSQL", "Queried by fetchPostgresDataActivity via Dapr binding")
+}
+
+Rel(user, api, "Schedule / poll workflow", "HTTPS / JSON")
+Rel(api, sidecar, "Workflow client + runtime (gRPC :50001)\nBinding invocation from activities (HTTP :3500)")
+Rel(sidecar, redis, "Persist workflow state", "TCP :6379")
+Rel(sidecar, postgres, "bindings.postgres", "TCP :5432")
+
+SHOW_LEGEND()
+@enduml
