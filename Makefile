@@ -603,7 +603,7 @@ dast-scan:
 			-J zap-report.json \
 			-w zap-report.md
 
-#docker-verify-manifest: @ Assert a published multi-arch image has linux/amd64 + linux/arm64 and zero unknown/unknown entries (CI)
+#docker-verify-manifest: @ Assert a published image has linux/amd64 and zero unknown/unknown entries (CI)
 docker-verify-manifest:
 	@set -eu; \
 	test -n "$(IMAGE_REF)" || { echo "ERROR: IMAGE_REF is required (e.g., make docker-verify-manifest IMAGE_REF=ghcr.io/owner/repo:1.0.0)"; exit 1; }; \
@@ -617,11 +617,7 @@ docker-verify-manifest:
 		echo "FAIL: linux/amd64 platform missing"; \
 		exit 1; \
 	fi; \
-	if ! echo "$$MANIFEST" | grep -q 'linux/arm64'; then \
-		echo "FAIL: linux/arm64 platform missing"; \
-		exit 1; \
-	fi; \
-	echo "PASS: multi-arch manifest verified"
+	echo "PASS: image manifest verified (linux/amd64)"
 
 #dast: @ ZAP baseline DAST scan against the built image
 dast: image-build

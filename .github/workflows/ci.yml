@@ -442,10 +442,11 @@ jobs:
           if-no-files-found: ignore
 
   docker:
-    # Tag-only: the whole job (single-arch build, Trivy image CVE scan,
-    # boot-marker smoke, multi-arch build, GHCR publish, cosign signing) runs
-    # solely on tag pushes. Regular pushes/PRs skip it — functional coverage
-    # comes from e2e/e2e-dapr, which build+run a single-arch image every push.
+    # Tag-only: the whole job (amd64 image build, Trivy image CVE scan,
+    # boot-marker smoke, GHCR publish, cosign signing) runs solely on tag
+    # pushes. Regular pushes/PRs skip it — functional coverage comes from
+    # e2e/e2e-dapr, which build+run an amd64 image every push. Images are
+    # amd64-only (arm64 dropped for build speed).
     # The step-level `if: startsWith(github.ref, 'refs/tags/')` guards on Log in
     # to GHCR / push / verify-manifest / Install cosign / Sign remain as
     # defense-in-depth (redundant once the job itself is tag-gated).
@@ -527,9 +528,10 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64,linux/arm64
-          # Non-tag pushes still build multi-arch to catch arm64 cross-compile
-          # regressions on the commit that introduced them, but skip the registry push.
+          platforms: linux/amd64
+          # amd64-only: arm64 was dropped for build speed (the QEMU-emulated
+          # arm64 leg dominated the docker job's wall-clock). This job is
+          # tag-gated, so the build+push runs only on tag pushes.
           push: ${{ startsWith(github.ref, 'refs/tags/') }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -538,7 +540,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Verify multi-arch manifest
+      - name: Verify image manifest
         if: startsWith(github.ref, 'refs/tags/')
         env:
           REPO: ${{ github.repository }}

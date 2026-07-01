@@ -406,7 +406,7 @@ Run `make help` to see all targets in one list.
 | `make ci-run-tag`             | Run GitHub Actions workflow locally with a tag event (exercises docker job)                                 |
 | `make release VERSION=vX.Y.Z` | Validate VERSION format, then run `tag-release` to commit, tag, and push                                    |
 
-> The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, `docker-verify-manifest`, `check-version`, and `tag-release` targets are internal helpers — `tag-release` and `check-version` are invoked transitively via `make release`; the `ci-*` and `docker-*` targets are called exclusively from CI (service-container provisioning, pre-push image gating, and multi-arch manifest verification). They are not intended for direct local use — use `make up` + `make start` locally and `make release VERSION=vX.Y.Z` for tagging.
+> The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, `docker-verify-manifest`, `check-version`, and `tag-release` targets are internal helpers — `tag-release` and `check-version` are invoked transitively via `make release`; the `ci-*` and `docker-*` targets are called exclusively from CI (service-container provisioning, pre-push image gating, and image manifest verification). They are not intended for direct local use — use `make up` + `make start` locally and `make release VERSION=vX.Y.Z` for tagging.
 
 ### Docker & Image
 
@@ -444,21 +444,21 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 | **integration-test** | changes, build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make integration-test` (PostgreSQL service container + Dapr CLI pinned via `.mise.toml`). Skipped under act.                                                                                                                                                                                      |
 | **e2e-durability**   | changes, build, test               | `make ci-seed-db` + build image + `./e2e/e2e-durability.sh` (schedules a workflow with a 15s delay, kills the app container mid-flight, restarts it, asserts COMPLETED from Redis-persisted state). Skipped under act.                                                                                                                                    |
 | **dast**             | changes, build, test               | **Tag pushes only** (`refs/tags/`): build image via `cache-from: type=gha`, `make docker-smoke-test`, cached ZAP image, `make dast-scan`, upload report artifact. Skipped on non-tag pushes/PRs and under act.                                                                                                                                            |
-| **docker**           | changes, static-check, build, test | **Tag pushes only** (`refs/tags/`): the whole job — single-arch build, Trivy image CVE scan (CRITICAL/HIGH blocking), boot-marker smoke, multi-arch build, GHCR push, cosign signing. Skipped on non-tag pushes/PRs (per-push image coverage comes from `e2e`/`e2e-dapr`)                                                                                 |
+| **docker**           | changes, static-check, build, test | **Tag pushes only** (`refs/tags/`): the whole job — amd64 image build, Trivy image CVE scan (CRITICAL/HIGH blocking), boot-marker smoke, GHCR push, cosign signing (amd64-only; arm64 dropped for speed). Skipped on non-tag pushes/PRs (per-push image coverage comes from `e2e`/`e2e-dapr`)                                                             |
 | **ci-pass**          | all of the above                   | Gate job: fails if any upstream job failed                                                                                                                                                                                                                                                                                                                |
 
 ### Pre-push image hardening
 
 The `docker` job runs the following gates **before** any image is pushed to GHCR. Any gate failure blocks the release.
 
-| #   | Gate                                          | Catches                                                                                     | Tool                                          |
-| --- | --------------------------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| 1   | Build local single-arch image                 | Build regressions on the runner architecture                                                | `docker/build-push-action` with `load: true`  |
-| 2   | **Trivy image scan** (CRITICAL/HIGH blocking) | CVEs in the base image, OS packages, build layers                                           | `aquasecurity/trivy-action` with `image-ref:` |
-| 3   | **Smoke test**                                | Image boots correctly on its own (Node.js boot-marker grep)                                 | `make docker-smoke-test`                      |
-| 4   | Multi-arch build + push                       | Publishes for `linux/amd64` and `linux/arm64`                                               | `docker/build-push-action`                    |
-| 5   | **Multi-arch manifest verification**          | Asserts image index has both platforms and no `unknown/unknown` (catches attestation leaks) | `make docker-verify-manifest`                 |
-| 6   | **Cosign keyless OIDC signing**               | Sigstore signature on the manifest digest                                                   | `sigstore/cosign-installer` + `cosign sign`   |
+| #   | Gate                                          | Catches                                                                                  | Tool                                          |
+| --- | --------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------- |
+| 1   | Build local single-arch image                 | Build regressions on the runner architecture                                             | `docker/build-push-action` with `load: true`  |
+| 2   | **Trivy image scan** (CRITICAL/HIGH blocking) | CVEs in the base image, OS packages, build layers                                        | `aquasecurity/trivy-action` with `image-ref:` |
+| 3   | **Smoke test**                                | Image boots correctly on its own (Node.js boot-marker grep)                              | `make docker-smoke-test`                      |
+| 4   | Image build + push                            | Publishes `linux/amd64` (arm64 dropped for build speed)                                  | `docker/build-push-action`                    |
+| 5   | **Image manifest verification**               | Asserts the image has `linux/amd64` and no `unknown/unknown` (catches attestation leaks) | `make docker-verify-manifest`                 |
+| 6   | **Cosign keyless OIDC signing**               | Sigstore signature on the manifest digest                                                | `sigstore/cosign-installer` + `cosign sign`   |
 
 The `dast` job runs in parallel with the `docker` job and performs an additional security scan:
 
@@ -466,7 +466,7 @@ The `dast` job runs in parallel with the `docker` job and performs an additional
 | --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
 | **OWASP ZAP baseline scan** | Missing security headers, misconfigs, info leaks | `make dast-scan` ([OWASP ZAP](https://www.zaproxy.org/) `-I` = warn only, report uploaded as artifact) |
 
-Buildkit in-manifest attestations (`provenance` + `sbom`) are disabled so the image index stays free of `unknown/unknown` platform entries, which lets GHCR's Packages UI render the "OS / Arch" tab for the multi-arch manifest. Cosign keyless signing still provides the Sigstore signature for supply-chain verification.
+Buildkit in-manifest attestations (`provenance` + `sbom`) are disabled so the image stays free of `unknown/unknown` platform entries, which lets GHCR's Packages UI render the "OS / Arch" tab. Cosign keyless signing still provides the Sigstore signature for supply-chain verification. Images are built for `linux/amd64` only — arm64 was dropped to keep the docker job fast (the QEMU-emulated arm64 build dominated its wall-clock).
 
 Verify a published image's signature:
 
