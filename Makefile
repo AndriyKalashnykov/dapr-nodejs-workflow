@@ -610,10 +610,16 @@ docker-verify-manifest:
 	MANIFEST=$$(docker buildx imagetools inspect "$(IMAGE_REF)"); \
 	echo "$$MANIFEST"; \
 	if echo "$$MANIFEST" | grep -q 'unknown/unknown'; then \
-		echo "FAIL: image index contains unknown/unknown entries (attestations leaked?)"; \
+		echo "FAIL: image contains unknown/unknown entries (attestations leaked?)"; \
 		exit 1; \
 	fi; \
-	if ! echo "$$MANIFEST" | grep -q 'linux/amd64'; then \
+	if docker buildx imagetools inspect "$(IMAGE_REF)" --raw | grep -q '"manifests"'; then \
+		PLATFORMS=$$(echo "$$MANIFEST" | grep -oE 'linux/[a-z0-9]+'); \
+	else \
+		PLATFORMS=$$(docker buildx imagetools inspect "$(IMAGE_REF)" --format '{{.Image.OS}}/{{.Image.Architecture}}'); \
+	fi; \
+	echo "Platform(s): $$PLATFORMS"; \
+	if ! echo "$$PLATFORMS" | grep -q 'linux/amd64'; then \
 		echo "FAIL: linux/amd64 platform missing"; \
 		exit 1; \
 	fi; \
