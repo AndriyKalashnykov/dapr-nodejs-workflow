@@ -180,6 +180,13 @@ All ports are exposed as Makefile variables (`make var=value` overrides for non-
 
 The host portion of every URL is `$(HOST)` (default `localhost`), also overridable. The e2e shell scripts (`e2e/e2e-dapr.sh`, `e2e/e2e-durability.sh`) pick free ports from the kernel's ephemeral range when `APP_PORT`/`DAPR_*_PORT` aren't already set, so parallel runs don't collide.
 
+`POSTGRES_PORT` / `REDIS_PORT` are honored end-to-end — the Compose port mapping (`${POSTGRES_PORT:-5432}:5432`) **and** the Dapr binding components. Because Dapr component metadata has no `{env:VAR}` substitution, `make start` renders the committed components into a gitignored runtime dir (`make render-components`) with the current ports substituted, then points `dapr run --resources-path` at it. So you can run the whole stack alongside another Postgres already holding `5432`:
+
+```bash
+export POSTGRES_PORT=5433      # any free host port
+make up && make start          # compose publishes 5433; the sidecar dials localhost:5433
+```
+
 ### Project Layout
 
 ```text

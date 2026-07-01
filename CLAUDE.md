@@ -77,13 +77,14 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Run
 
-| Target               | Description                                                                                              |
-| -------------------- | -------------------------------------------------------------------------------------------------------- |
-| `make start`         | Build and start API server with Dapr sidecar (foreground)                                                |
-| `make start-bg`      | Build and start API server + Dapr sidecar in the **background** (idempotent; used by `integration-test`) |
-| `make stop`          | Stop the Dapr sidecar and API server                                                                     |
-| `make start-no-dapr` | Build and start API server without Dapr (HTTP health check only)                                         |
-| `make run`           | Alias for `start-no-dapr`                                                                                |
+| Target                   | Description                                                                                                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `make start`             | Build and start API server with Dapr sidecar (foreground); depends on `render-components`                                                                                                        |
+| `make render-components` | Render committed Dapr components into `.dapr-run/components/` (gitignored) with `$(POSTGRES_PORT)`/`$(REDIS_PORT)` substituted — the mechanism that makes the DB-port override reach the sidecar |
+| `make start-bg`          | Build and start API server + Dapr sidecar in the **background** (idempotent; used by `integration-test`)                                                                                         |
+| `make stop`              | Stop the Dapr sidecar and API server                                                                                                                                                             |
+| `make start-no-dapr`     | Build and start API server without Dapr (HTTP health check only)                                                                                                                                 |
+| `make run`               | Alias for `start-no-dapr`                                                                                                                                                                        |
 
 ### Test & Verify
 
@@ -200,6 +201,8 @@ The app runs as two processes: Express API + Dapr sidecar. The sidecar manages:
 - **Bindings**: PostgreSQL via `postgres-db` component -- queried via HTTP POST to `http://localhost:{DAPR_HTTP_PORT}/v1.0/bindings/postgres-db`
 
 The `WorkflowRuntime` and `DaprWorkflowClient` are lazy-initialized on the first API request. If the Dapr sidecar is unreachable on gRPC port 50001, the app returns an error directing the user to run `make start`.
+
+**Operator-tunable DB ports (`POSTGRES_PORT`/`REDIS_PORT`) are honored end-to-end.** Compose maps `${POSTGRES_PORT:-5432}:5432` / `${REDIS_PORT:-6379}:6379`, and the Dapr binding components' `localhost:<port>` is rendered to match. Dapr component metadata has **no `{env:VAR}` templating tag** (only `{uuid}`/`{podName}`/`{namespace}`/`{appID}`), so the port cannot be referenced from an env var inside the YAML — instead `make start`/`start-bg`/`ci-dapr-start`/`e2e-dapr` depend on `render-components`, which `sed`-substitutes the committed components into `.dapr-run/` (gitignored) and points `--resources-path` there. This lets the stack run alongside another Postgres already on 5432 (`export POSTGRES_PORT=5433 && make up && make start`). The committed `components/*.yaml` keep the default ports (so a bare `dapr run --resources-path ./components` still works) and the `components-check` drift gate is unaffected.
 
 ### Workflow Pattern
 

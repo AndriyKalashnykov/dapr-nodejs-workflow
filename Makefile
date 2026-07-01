@@ -40,6 +40,14 @@ APP_ID              ?= workflow-api
 # Local dev / CI Dapr components.
 COMPONENTS_PATH     ?= ./components
 CI_COMPONENTS_PATH  ?= ./dapr/ci
+# Runtime-rendered component dirs (gitignored). The committed components pin the
+# default DB host-ports; `render-components` substitutes $(POSTGRES_PORT)/$(REDIS_PORT)
+# into a runtime copy so an operator override (e.g. running alongside another
+# Postgres already on 5432) actually reaches the Dapr sidecar. Dapr component
+# metadata has no {env:VAR} tag (only {uuid}/{podName}/{namespace}/{appID}), so
+# the value must be rendered at `dapr run` time, not referenced.
+RUN_COMPONENTS_DIR    := .dapr-run/components
+RUN_CI_COMPONENTS_DIR := .dapr-run/ci-components
 
 # --- Pinned tool versions ---
 # Language toolchains + CLI tools (node, pnpm, act, dapr, gitleaks, hadolint,
@@ -342,8 +350,10 @@ check-ports:
 	done; \
 	if [ "$$conflict" -ne 0 ]; then \
 		echo ""; \
-		echo "Free the port(s) above (e.g. stop that container), or run on alternative ports:"; \
-		echo "    make up POSTGRES_PORT=<free-port> REDIS_PORT=<free-port>"; \
+		echo "Free the port(s) above (e.g. stop that container), or export alternative"; \
+		echo "ports so every target (up, start, seed) agrees on them:"; \
+		echo "    export POSTGRES_PORT=<free-port> REDIS_PORT=<free-port>"; \
+		echo "    make up && make start"; \
 		exit 1; \
 	fi; \
 	echo "check-ports: ports $(COMPOSE_PORTS) are free."
@@ -354,7 +364,7 @@ up:
 		echo "Infrastructure is already running."; \
 	else \
 		$(MAKE) --no-print-directory check-ports || exit 1; \
-		podman compose up -d; \
+		POSTGRES_PORT=$(POSTGRES_PORT) REDIS_PORT=$(REDIS_PORT) podman compose up -d; \
 		echo "Waiting for PostgreSQL to accept connections..."; \
 		timeout 60 bash -c 'until podman compose exec -T postgres pg_isready >/dev/null 2>&1; do sleep 1; done' \
 			|| { echo "ERROR: PostgreSQL did not become ready within 60s:"; podman compose ps; exit 1; }; \
@@ -391,8 +401,29 @@ dapr-init: deps
 	fi
 	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
 
+# $(call render_components,<src-dir>,<dst-dir>) — copy the components, substituting
+# the DB host-ports with $(POSTGRES_PORT)/$(REDIS_PORT). Matched by position
+# (`@localhost:<port>/` for the Postgres binding url; `value: localhost:<port>` for
+# the Redis host) so there is NO hardcoded default-port literal in the substitution.
+define render_components
+rm -rf "$(2)"; mkdir -p "$(2)"; \
+for f in "$(1)"/*.yaml; do \
+	sed -e 's#@localhost:[0-9][0-9]*/#@localhost:$(POSTGRES_PORT)/#g' \
+	    -e 's#value: localhost:[0-9][0-9]*#value: localhost:$(REDIS_PORT)#g' \
+	    "$$f" > "$(2)/$$(basename "$$f")"; \
+done
+endef
+
+#render-components: @ Render runtime Dapr components with the current $(POSTGRES_PORT)/$(REDIS_PORT)
+render-components:
+	@$(call render_components,$(COMPONENTS_PATH),$(RUN_COMPONENTS_DIR))
+
+#render-ci-components: @ Render CI Dapr components with the current $(POSTGRES_PORT)/$(REDIS_PORT)
+render-ci-components:
+	@$(call render_components,$(CI_COMPONENTS_PATH),$(RUN_CI_COMPONENTS_DIR))
+
 #start: @ Build and start the API server with Dapr sidecar
-start: build
+start: build render-components
 	@DAPR_HOST=$(HOST) DAPR_GRPC_PORT=$(DAPR_GRPC_PORT) DAPR_HTTP_PORT=$(DAPR_HTTP_PORT) \
 	dapr run \
 		--app-id $(APP_ID) \
@@ -401,11 +432,11 @@ start: build
 		--dapr-grpc-port $(DAPR_GRPC_PORT) \
 		--dapr-http-port $(DAPR_HTTP_PORT) \
 		--scheduler-host-address $(HOST):$(DAPR_SCHEDULER_PORT) \
-		--resources-path $(COMPONENTS_PATH) \
+		--resources-path $(RUN_COMPONENTS_DIR) \
 		-- node dist/api-server.js
 
 #start-bg: @ Build and start the API server + Dapr sidecar in the BACKGROUND (used by integration-test)
-start-bg: build
+start-bg: build render-components
 	@# Idempotent: if a sidecar is already answering (e.g. a foreground `make start`
 	@# in another terminal), reuse it instead of starting a second one.
 	@if curl -sf -m 2 http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz >/dev/null 2>&1; then \
@@ -420,7 +451,7 @@ start-bg: build
 		--dapr-grpc-port $(DAPR_GRPC_PORT) \
 		--dapr-http-port $(DAPR_HTTP_PORT) \
 		--scheduler-host-address $(HOST):$(DAPR_SCHEDULER_PORT) \
-		--resources-path $(COMPONENTS_PATH) \
+		--resources-path $(RUN_COMPONENTS_DIR) \
 		-- node dist/api-server.js > /tmp/dapr-run-local.log 2>&1 & \
 	echo "Waiting for Dapr sidecar on $(HOST):$(DAPR_HTTP_PORT)..."; \
 	timeout 30 bash -c 'until curl -sf http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz >/dev/null; do sleep 1; done' \
@@ -560,13 +591,13 @@ e2e: image-build
 	echo "e2e tests passed"
 
 #e2e-dapr: @ Full-stack e2e: run production image + Dapr sidecar, assert workflow COMPLETED
-e2e-dapr: image-build
-	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) HOST=$(HOST) RESOURCES_PATH=$(COMPONENTS_PATH) \
+e2e-dapr: image-build render-components
+	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) HOST=$(HOST) RESOURCES_PATH=$(RUN_COMPONENTS_DIR) \
 		./e2e/e2e-dapr.sh
 
 #e2e-durability: @ Workflow replay e2e: kill the app mid-flight and assert the workflow still COMPLETES
-e2e-durability: image-build
-	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) HOST=$(HOST) RESOURCES_PATH=$(COMPONENTS_PATH) \
+e2e-durability: image-build render-components
+	@IMAGE=$(IMAGE) DOCKER=$(DOCKER) HOST=$(HOST) RESOURCES_PATH=$(RUN_COMPONENTS_DIR) \
 		./e2e/e2e-durability.sh
 
 #docker-smoke-test: @ Boot-marker smoke test: start smoke-test container, wait for boot. Leaves container running for DAST (CI)
@@ -681,7 +712,7 @@ ci-seed-db:
 	@PGPASSWORD=postgres psql -h $(HOST) -p $(POSTGRES_PORT) -U postgres -d postgres -f db/baseline_dml.sql
 
 #ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
-ci-dapr-start:
+ci-dapr-start: render-ci-components
 	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
 	@DAPR_HOST=$(HOST) DAPR_GRPC_PORT=$(DAPR_GRPC_PORT) DAPR_HTTP_PORT=$(DAPR_HTTP_PORT) \
 	nohup dapr run \
@@ -691,7 +722,7 @@ ci-dapr-start:
 		--dapr-grpc-port $(DAPR_GRPC_PORT) \
 		--dapr-http-port $(DAPR_HTTP_PORT) \
 		--scheduler-host-address $(HOST):$(DAPR_SCHEDULER_PORT) \
-		--resources-path $(CI_COMPONENTS_PATH) \
+		--resources-path $(RUN_CI_COMPONENTS_DIR) \
 		--log-level warn \
 		-- node dist/api-server.js > /tmp/dapr-run.log 2>&1 & \
 	echo "Waiting for Dapr sidecar on $(HOST):$(DAPR_HTTP_PORT)..." && \
@@ -751,4 +782,5 @@ renovate-validate: deps
 	check-workflow check-db check-version release tag-release \
 	image-build image-run image-stop e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
 	components-check diagrams diagrams-clean diagrams-check check-node-alignment mermaid-lint \
+	render-components render-ci-components \
 	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate
