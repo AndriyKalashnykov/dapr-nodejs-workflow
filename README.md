@@ -308,16 +308,14 @@ make test-watch    # run unit tests in watch mode
 
 #### Integration Tests
 
-Integration tests require the full Dapr stack (PostgreSQL + Redis + Dapr sidecar):
+`make integration-test` auto-provisions everything it needs — it starts PostgreSQL + Redis (`up`, after a `check-ports` preflight) and the API server + Dapr sidecar in the background (`start-bg`), then runs the suite:
 
 ```bash
-# Terminal 1
-make up            # start PostgreSQL + Redis
-make start         # start API server with Dapr
-
-# Terminal 2
-make integration-test
+make dapr-init          # one-time: initialize Dapr (placement + scheduler + Redis)
+make integration-test   # provisions infra + backgrounded sidecar, then runs the tests
 ```
+
+The backgrounded stack is left running afterward; `make stop` + `make down` to clean up. (In CI the job provisions its own PostgreSQL service container and sidecar, so `integration-test` there just runs the suite.)
 
 #### End-to-end Tests
 
@@ -368,33 +366,35 @@ Run `make help` to see all targets in one list.
 
 ### Test
 
-| Target                  | Description                                         |
-| ----------------------- | --------------------------------------------------- |
-| `make test`             | Run unit tests                                      |
-| `make test-watch`       | Run unit tests in watch mode                        |
-| `make integration-test` | Run integration tests (requires running Dapr stack) |
-| `make smoke`            | HTTP smoke test against built server (no Dapr)      |
+| Target                  | Description                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `make test`             | Run unit tests                                                               |
+| `make test-watch`       | Run unit tests in watch mode                                                 |
+| `make integration-test` | Run integration tests (locally auto-provisions infra + backgrounded sidecar) |
+| `make smoke`            | HTTP smoke test against built server (no Dapr)                               |
 
 ### Infrastructure
 
-| Target                | Description                                                              |
-| --------------------- | ------------------------------------------------------------------------ |
-| `make dapr-init`      | Initialize Dapr in local environment (stops conflicting Redis if needed) |
-| `make up`             | Start PostgreSQL and Redis via Podman Compose                            |
-| `make down`           | Stop infrastructure services and remove containers                       |
-| `make postgres-start` | Start PostgreSQL in Podman                                               |
-| `make postgres-stop`  | Stop PostgreSQL Podman container                                         |
+| Target                | Description                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `make dapr-init`      | Initialize Dapr in local environment (stops conflicting Redis if needed)                                      |
+| `make up`             | Start PostgreSQL and Redis via Podman Compose (preflights `check-ports`, waits until both accept connections) |
+| `make down`           | Stop infrastructure services and remove containers                                                            |
+| `make check-ports`    | Fail early (naming the offending container) if a compose port is already bound                                |
+| `make postgres-start` | Start PostgreSQL in Podman                                                                                    |
+| `make postgres-stop`  | Stop PostgreSQL Podman container                                                                              |
 
 ### Run & Verify
 
-| Target                | Description                                         |
-| --------------------- | --------------------------------------------------- |
-| `make start`          | Build and start the API server with Dapr sidecar    |
-| `make stop`           | Stop the Dapr sidecar and API server                |
-| `make start-no-dapr`  | Build and start the API server without Dapr sidecar |
-| `make run`            | Alias for `start-no-dapr`                           |
-| `make check-workflow` | Trigger a test workflow and print the result        |
-| `make check-db`       | Run the database health check endpoint              |
+| Target                | Description                                                                                  |
+| --------------------- | -------------------------------------------------------------------------------------------- |
+| `make start`          | Build and start the API server with Dapr sidecar                                             |
+| `make start-bg`       | Build and start the API server + Dapr sidecar in the background (used by `integration-test`) |
+| `make stop`           | Stop the Dapr sidecar and API server                                                         |
+| `make start-no-dapr`  | Build and start the API server without Dapr sidecar                                          |
+| `make run`            | Alias for `start-no-dapr`                                                                    |
+| `make check-workflow` | Trigger a test workflow and print the result                                                 |
+| `make check-db`       | Run the database health check endpoint                                                       |
 
 ### CI & Release
 

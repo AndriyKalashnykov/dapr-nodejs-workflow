@@ -31,6 +31,9 @@ REDIS_PORT          ?= 6379
 # Host port the prod image binds for e2e + smoke + DAST.
 TEST_HOST_PORT      ?= 3100
 
+# Host ports the compose stack (`make up`) binds; `check-ports` guards them.
+COMPOSE_PORTS       := $(POSTGRES_PORT) $(REDIS_PORT)
+
 # --- Identifiers and paths ---
 # Dapr app-id (also the `make stop` lookup key).
 APP_ID              ?= workflow-api
@@ -285,19 +288,20 @@ test: install
 test-watch: install
 	@pnpm exec vitest
 
-#integration-test: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
+# Locally, auto-provision infra + backgrounded sidecar before the suite. In CI the
+# workflow provisions its own PostgreSQL service container + sidecar (ci-dapr-start)
+# and podman/compose isn't on the runner, so skip up/start-bg when CI is set.
+ifndef CI
+integration-test: up start-bg
+endif
+
+#integration-test: @ Run integration tests (locally auto-provisions infra + backgrounded Dapr sidecar; CI provisions its own)
 integration-test: install
-	@curl -sf -m 2 http://$(HOST):$(PORT)/ > /dev/null 2>&1 \
-		|| { echo "ERROR: API server not reachable on $(HOST):$(PORT)."; \
-		     echo "       Integration tests need the full stack. Start it first:"; \
-		     echo "         make up      # PostgreSQL + Redis"; \
-		     echo "         make start   # API server + Dapr sidecar"; \
-		     exit 1; }
-	@curl -sf -m 2 http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz > /dev/null 2>&1 \
-		|| { echo "ERROR: Dapr sidecar not reachable on $(HOST):$(DAPR_HTTP_PORT)."; \
-		     echo "       The API server is up but its Dapr sidecar is not — run 'make start' (not 'make start-no-dapr')."; \
-		     exit 1; }
 	@pnpm exec vitest run --config vitest.integration.config.ts
+	@if [ -z "$$CI" ]; then \
+		echo ""; \
+		echo "Integration tests done. The backgrounded stack is still up — 'make stop' + 'make down' to clean up."; \
+	fi
 
 #smoke: @ HTTP smoke test against built server (no Dapr)
 smoke: build
@@ -320,14 +324,44 @@ update: deps
 upgrade: deps
 	@pnpm upgrade
 
+#check-ports: @ Fail early (naming the offending container) if a compose port is already bound
+check-ports:
+	@# bash `/dev/tcp` connect = "something is listening" (SHELL is bash). No `set -e`:
+	@# a free port makes the connect fail, which is the expected/normal case.
+	@set -uo pipefail; conflict=0; \
+	for p in $(COMPOSE_PORTS); do \
+		if (exec 3<>/dev/tcp/$(HOST)/$$p) 2>/dev/null; then \
+			exec 3>&- 2>/dev/null || true; \
+			holder=$$( { docker ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null; \
+			             podman ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null; } \
+			           | grep -E ":$$p->" | cut -d'|' -f1 | paste -sd, - ); \
+			[ -n "$$holder" ] || holder="a non-container process (see: ss -ltnp 'sport = :$$p')"; \
+			echo "ERROR: port $$p is already in use by: $$holder"; \
+			conflict=1; \
+		fi; \
+	done; \
+	if [ "$$conflict" -ne 0 ]; then \
+		echo ""; \
+		echo "Free the port(s) above (e.g. stop that container), or run on alternative ports:"; \
+		echo "    make up POSTGRES_PORT=<free-port> REDIS_PORT=<free-port>"; \
+		exit 1; \
+	fi; \
+	echo "check-ports: ports $(COMPOSE_PORTS) are free."
+
 #up: @ Start PostgreSQL and Redis via Podman Compose
 up:
 	@if podman compose ps --format '{{.State}}' 2>/dev/null | grep -q running; then \
 		echo "Infrastructure is already running."; \
 	else \
+		$(MAKE) --no-print-directory check-ports || exit 1; \
 		podman compose up -d; \
-		echo "Waiting for services to be healthy..."; \
-		timeout 30 bash -c 'until podman compose ps --format "{{.Status}}" 2>/dev/null | grep -q healthy; do sleep 1; done' || true; \
+		echo "Waiting for PostgreSQL to accept connections..."; \
+		timeout 60 bash -c 'until podman compose exec -T postgres pg_isready >/dev/null 2>&1; do sleep 1; done' \
+			|| { echo "ERROR: PostgreSQL did not become ready within 60s:"; podman compose ps; exit 1; }; \
+		echo "Waiting for Redis to accept connections..."; \
+		timeout 30 bash -c 'until [ "$$(podman compose exec -T redis redis-cli ping 2>/dev/null | tr -d "[:space:]")" = PONG ]; do sleep 1; done' \
+			|| { echo "ERROR: Redis did not become ready within 30s"; exit 1; }; \
+		echo "Infrastructure is ready."; \
 	fi
 
 #down: @ Stop infrastructure services and remove containers
@@ -369,6 +403,33 @@ start: build
 		--scheduler-host-address $(HOST):$(DAPR_SCHEDULER_PORT) \
 		--resources-path $(COMPONENTS_PATH) \
 		-- node dist/api-server.js
+
+#start-bg: @ Build and start the API server + Dapr sidecar in the BACKGROUND (used by integration-test)
+start-bg: build
+	@# Idempotent: if a sidecar is already answering (e.g. a foreground `make start`
+	@# in another terminal), reuse it instead of starting a second one.
+	@if curl -sf -m 2 http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz >/dev/null 2>&1; then \
+		echo "Dapr sidecar already running on $(HOST):$(DAPR_HTTP_PORT) — reusing it."; \
+		exit 0; \
+	fi; \
+	DAPR_HOST=$(HOST) DAPR_GRPC_PORT=$(DAPR_GRPC_PORT) DAPR_HTTP_PORT=$(DAPR_HTTP_PORT) \
+	nohup dapr run \
+		--app-id $(APP_ID) \
+		--app-port $(PORT) \
+		--app-protocol http \
+		--dapr-grpc-port $(DAPR_GRPC_PORT) \
+		--dapr-http-port $(DAPR_HTTP_PORT) \
+		--scheduler-host-address $(HOST):$(DAPR_SCHEDULER_PORT) \
+		--resources-path $(COMPONENTS_PATH) \
+		-- node dist/api-server.js > /tmp/dapr-run-local.log 2>&1 & \
+	echo "Waiting for Dapr sidecar on $(HOST):$(DAPR_HTTP_PORT)..."; \
+	timeout 30 bash -c 'until curl -sf http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz >/dev/null; do sleep 1; done' \
+		|| { echo "ERROR: Dapr sidecar did not become ready. Is Dapr initialized? Run 'make dapr-init' once."; \
+		     echo "=== dapr run log ==="; cat /tmp/dapr-run-local.log; exit 1; }; \
+	echo "Waiting for API server on $(HOST):$(PORT)..."; \
+	timeout 15 bash -c 'until curl -sf http://$(HOST):$(PORT)/ >/dev/null; do sleep 1; done' \
+		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run-local.log; exit 1; }; \
+	echo "Dapr sidecar and API server are ready."
 
 #stop: @ Stop the Dapr sidecar and API server
 stop:
@@ -684,7 +745,7 @@ renovate-validate: deps
 .PHONY: help deps clean install build format format-check \
 	lint vulncheck secrets trivy-fs deps-prune deps-prune-check static-check \
 	test test-watch integration-test smoke check update upgrade \
-	up down postgres-start postgres-stop dapr-init start stop start-no-dapr run \
+	check-ports up down postgres-start postgres-stop dapr-init start start-bg stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
 	image-build image-run image-stop e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
 	components-check diagrams diagrams-clean diagrams-check check-node-alignment mermaid-lint \
