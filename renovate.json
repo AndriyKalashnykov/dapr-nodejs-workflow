@@ -15,7 +15,7 @@
   "labels": ["dependencies"],
   "prConcurrentLimit": 50,
   "prHourlyLimit": 0,
-  "platformAutomerge": true,
+  "platformAutomerge": false,
   "automerge": true,
   "automergeType": "pr",
   "automergeStrategy": "squash",
@@ -36,6 +36,12 @@
     {
       "description": "Wait 3 days before automerging major updates",
       "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Hold mise CLI tools (act/dapr/gitleaks/hadolint/trivy — aqua backends resolved via github-tags) for 3 days so the upstream GitHub Release artifacts that `mise install` fetches are published before the bump PR opens. Without this, Renovate sees a fresh git tag and opens a PR while the release binary is still 404 (tag-before-publish race), reddening `make deps`. Scoped to github-tags so it does not delay node (node-version datasource) or pnpm.",
+      "matchManagers": ["mise"],
+      "matchDatasources": ["github-tags"],
       "minimumReleaseAge": "3 days"
     },
     {

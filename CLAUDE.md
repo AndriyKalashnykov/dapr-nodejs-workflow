@@ -291,6 +291,12 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 - [x] Ubuntu runner pinning — **N/A: all `runs-on:` use `ubuntu-latest` (verified 2026-06-30, zero hardcoded `ubuntu-24.04`/`ubuntu-22.04` pins), so the GitHub-managed 24.04→26.04 migration is automatic; nothing to bump. Pin a specific image here only if build reproducibility ever requires it.**
 - [ ] **`PLANTUML_VERSION` (Makefile) is manually bumped, not Renovate-tracked.** The committed C4 PNGs are a generated artifact guarded by `make diagrams-check`; the hosted Renovate app can't run `make diagrams` to regenerate them, so a tracked bump PR would sit permanently RED on the drift gate under this repo's automerge. To bump: edit the `plantuml/plantuml` tag, run `make diagrams`, and commit the source + regenerated PNGs together. (Re-evaluate if a regen-and-commit-back CI workflow with an App/PAT token is ever added — a Ruleset-gated repo needs a non-`GITHUB_TOKEN` push for the commit-back.)
 
+### Renovate automerge posture (do NOT "fix" `platformAutomerge: false` back to `true`)
+
+`renovate.json` sets **`platformAutomerge: false` deliberately** — this is NOT a deviation from the base template to be corrected. `main` is gated by a **Repository Ruleset requiring the `ci-pass` status check**; with `platformAutomerge: true`, GitHub-native auto-merge can complete a Renovate merge in the ~1s window _before_ `ci-pass` registers on the PR, landing a red bump on `main` (the documented registration race — see the `/renovate` skill §"Automerge is only as safe as the REQUIRED status checks"). `false` makes Renovate merge via its own later run, after re-confirming the required check is green. A `/project-review` / `/ship-it` agent reading the base template (`true`) will flag this as an "unexplained deviation" — it is intentional; verify the required check first (`gh api repos/<o>/<r>/rules/branches/main`) before ever flipping it. `automerge: true` / `automergeType: "pr"` are unchanged.
+
+Dependabot **alerts** are enabled (the read-only signal Renovate's `vulnerabilityAlerts` block consumes); Dependabot **version updates** and **security updates** stay disabled (Renovate owns all bumps). Do not add `.github/dependabot.yml`.
+
 ## Skills
 
 Use the following skills when working on related files:
