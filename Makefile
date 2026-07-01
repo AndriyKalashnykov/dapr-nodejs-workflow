@@ -287,6 +287,16 @@ test-watch: install
 
 #integration-test: @ Run integration tests (requires running infrastructure + Dapr sidecar + server)
 integration-test: install
+	@curl -sf -m 2 http://$(HOST):$(PORT)/ > /dev/null 2>&1 \
+		|| { echo "ERROR: API server not reachable on $(HOST):$(PORT)."; \
+		     echo "       Integration tests need the full stack. Start it first:"; \
+		     echo "         make up      # PostgreSQL + Redis"; \
+		     echo "         make start   # API server + Dapr sidecar"; \
+		     exit 1; }
+	@curl -sf -m 2 http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz > /dev/null 2>&1 \
+		|| { echo "ERROR: Dapr sidecar not reachable on $(HOST):$(DAPR_HTTP_PORT)."; \
+		     echo "       The API server is up but its Dapr sidecar is not — run 'make start' (not 'make start-no-dapr')."; \
+		     exit 1; }
 	@pnpm exec vitest run --config vitest.integration.config.ts
 
 #smoke: @ HTTP smoke test against built server (no Dapr)
@@ -413,8 +423,25 @@ release: check-version tag-release
 
 #tag-release: @ Create and push a new git tag
 tag-release: check-version
+	@# Fail BEFORE the commit if the tag already exists locally or on origin —
+	@# otherwise `git commit -a` lands a "Cut vX release" commit and the later
+	@# `git tag` aborts, leaving a dangling commit and a half-published release.
+	@if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null 2>&1; then \
+		echo "ERROR: tag ${VERSION} already exists locally. Pick a new version or delete it:  git tag -d ${VERSION}"; \
+		exit 1; \
+	fi
+	@if git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then \
+		echo "ERROR: tag ${VERSION} already exists on origin. Pick a new version."; \
+		exit 1; \
+	fi
 	@echo -n "Are you sure to create and push ${VERSION} tag? [y/N] " && read ans && [ $${ans:-N} = y ]
-	@git commit -a -s -m "Cut ${VERSION} release"
+	@# Tolerate a clean tree: `git commit -a` exits non-zero on "nothing to
+	@# commit", which would abort the release before the tag is ever created.
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		git commit -a -s -m "Cut ${VERSION} release"; \
+	else \
+		echo "Working tree clean — tagging current HEAD without a release commit."; \
+	fi
 	@git tag ${VERSION}
 	@git push origin ${VERSION}
 	@git push
@@ -501,6 +528,8 @@ docker-smoke-test:
 dast-scan:
 	@set -eu; \
 	WORK="$${GITHUB_WORKSPACE:-$$PWD}"; \
+	rm -rf "$$WORK/zap-output" 2>/dev/null \
+		|| docker run --rm --user 0 -v "$$WORK:/work" -w /work --entrypoint rm ghcr.io/zaproxy/zaproxy:$(ZAP_VERSION) -rf zap-output; \
 	mkdir -p "$$WORK/zap-output"; \
 	chmod 777 "$$WORK/zap-output"; \
 	docker run --rm --network host \
@@ -543,6 +572,13 @@ dast: image-build
 		sleep 1; \
 		[ "$$i" -eq 30 ] && { echo "Container failed to start"; $(DOCKER) logs $(IMAGE_NAME)-dast; $(DOCKER) rm -f $(IMAGE_NAME)-dast; exit 1; }; \
 	done
+	@# ZAP's container writes into the bind mount as root, so a stale zap-output
+	@# from a prior run is root-owned — a later `chmod`/`rm` by the host user then
+	@# fails with "Operation not permitted". Remove it first (falling back to a
+	@# root container when the host user can't), then recreate it user-owned so
+	@# `chmod 777` succeeds and `make clean` can delete it later.
+	@rm -rf zap-output 2>/dev/null \
+		|| $(DOCKER) run --rm --user 0 -v "$(CURDIR):/work" -w /work --entrypoint rm ghcr.io/zaproxy/zaproxy:$(ZAP_VERSION) -rf zap-output
 	@mkdir -p zap-output && chmod 777 zap-output
 	@$(DOCKER) run --rm --network host \
 		-v "$$(pwd)/zap-output:/zap/wrk:rw" \
