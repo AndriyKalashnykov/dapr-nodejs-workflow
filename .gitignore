@@ -149,3 +149,7 @@ zap-output/
 !docs/diagrams/out/
 !docs/diagrams/out/**
 docs/diagrams/out/.plantuml-*.stamp
+
+# Runtime-rendered Dapr components (make render-components) — generated from
+# components/ + dapr/ci/ with $POSTGRES_PORT/$REDIS_PORT substituted; never committed.
+.dapr-run/

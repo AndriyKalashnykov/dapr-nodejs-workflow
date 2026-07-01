@@ -4,7 +4,10 @@ services:
   redis:
     image: docker.io/redis:8-alpine@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
     ports:
-      - "6379:6379"
+      # Host port is operator-tunable (mirrors REDIS_PORT in the Makefile/.env);
+      # the container-internal port stays 6379. Lets the stack run alongside
+      # another Redis already holding 6379 on the host.
+      - "${REDIS_PORT:-6379}:6379"
     restart: unless-stopped
     command:
       [
@@ -25,7 +28,10 @@ services:
   postgres:
     image: docker.io/postgres:18-alpine@sha256:1b1689b20d16a014a3d195653381cf2caa75a41a92d93b255a9d6ea29fd353aa
     ports:
-      - "5432:5432"
+      # Host port is operator-tunable (mirrors POSTGRES_PORT in the Makefile/.env);
+      # the container-internal port stays 5432. Lets the stack run alongside
+      # another Postgres already holding 5432 on the host.
+      - "${POSTGRES_PORT:-5432}:5432"
     restart: unless-stopped
     shm_size: 128mb
     environment:
