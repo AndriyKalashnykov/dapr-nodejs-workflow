@@ -373,7 +373,9 @@ jobs:
     # starts it via make docker-smoke-test, then runs ZAP baseline. Skipped under
     # nektos/act: ZAP's docker-in-docker bind mount of $GITHUB_WORKSPACE/zap-output
     # doesn't round-trip through the host Docker daemon.
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' }}
+    # Tag-only: DAST scans the released production image, so it runs solely on
+    # tag pushes (paired with the docker job below). Regular pushes/PRs skip it.
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' && startsWith(github.ref, 'refs/tags/') }}
     needs: [changes, build, test]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -440,14 +442,15 @@ jobs:
           if-no-files-found: ignore
 
   docker:
-    # Runs on every push, in parallel with e2e + dast. Step-level
-    # `if: startsWith(github.ref, 'refs/tags/')` on Log in to GHCR /
-    # Install cosign / Sign, plus `push: ${{ … }}` on the multi-arch
-    # build, gates the tag-only behavior. Non-tag pushes still exercise
-    # gates 1-4 (build + Trivy + smoke + multi-arch build) to catch
-    # arm64 cross-compile regressions and cosign installer breakage early.
+    # Tag-only: the whole job (single-arch build, Trivy image CVE scan,
+    # boot-marker smoke, multi-arch build, GHCR publish, cosign signing) runs
+    # solely on tag pushes. Regular pushes/PRs skip it — functional coverage
+    # comes from e2e/e2e-dapr, which build+run a single-arch image every push.
+    # The step-level `if: startsWith(github.ref, 'refs/tags/')` guards on Log in
+    # to GHCR / push / verify-manifest / Install cosign / Sign remain as
+    # defense-in-depth (redundant once the job itself is tag-gated).
     needs: [changes, static-check, build, test]
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
