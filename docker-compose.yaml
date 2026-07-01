@@ -34,7 +34,11 @@ services:
     volumes:
       - ./db/baseline_ddl.sql:/docker-entrypoint-initdb.d/01_create_tables.sql
       - ./db/baseline_dml.sql:/docker-entrypoint-initdb.d/02_fill_tables.sql
-      - pg-data:/var/lib/postgresql/data
+      # postgres:18 stores data in a major-version subdir under /var/lib/postgresql
+      # (moved from /var/lib/postgresql/data in 17-). Mount the volume at the new
+      # parent path so the image manages the versioned subdir itself; mounting at
+      # the old /var/lib/postgresql/data makes 18 refuse to start ("unused mount").
+      - pg-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s

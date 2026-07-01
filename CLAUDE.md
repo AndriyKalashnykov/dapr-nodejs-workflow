@@ -23,7 +23,7 @@ make check-db            # Run the database health check endpoint
 
 # Run tests (three-layer pyramid)
 make test                # Unit tests (Vitest, seconds)
-make integration-test    # Integration tests with running Dapr stack (tens of seconds)
+make integration-test    # Integration tests — auto-provisions infra + backgrounded Dapr sidecar (tens of seconds)
 make e2e                 # End-to-end against the production Docker image (minutes)
 
 # Stop everything
@@ -67,39 +67,41 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Infrastructure
 
-| Target                | Description                                           |
-| --------------------- | ----------------------------------------------------- |
-| `make up`             | Start PostgreSQL + Redis via Podman Compose           |
-| `make down`           | Stop and remove Podman Compose containers             |
-| `make postgres-start` | Start PostgreSQL in Podman (alternative to `make up`) |
-| `make postgres-stop`  | Stop PostgreSQL Podman container                      |
+| Target                | Description                                                                                                   |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `make up`             | Start PostgreSQL + Redis via Podman Compose (runs `check-ports` first, waits until both accept connections)   |
+| `make down`           | Stop and remove Podman Compose containers                                                                     |
+| `make check-ports`    | Fail early (naming the offending container) if a compose port (`POSTGRES_PORT`/`REDIS_PORT`) is already bound |
+| `make postgres-start` | Start PostgreSQL in Podman (alternative to `make up`)                                                         |
+| `make postgres-stop`  | Stop PostgreSQL Podman container                                                                              |
 
 ### Run
 
-| Target               | Description                                                      |
-| -------------------- | ---------------------------------------------------------------- |
-| `make start`         | Build and start API server with Dapr sidecar (foreground)        |
-| `make stop`          | Stop the Dapr sidecar and API server                             |
-| `make start-no-dapr` | Build and start API server without Dapr (HTTP health check only) |
-| `make run`           | Alias for `start-no-dapr`                                        |
+| Target               | Description                                                                                              |
+| -------------------- | -------------------------------------------------------------------------------------------------------- |
+| `make start`         | Build and start API server with Dapr sidecar (foreground)                                                |
+| `make start-bg`      | Build and start API server + Dapr sidecar in the **background** (idempotent; used by `integration-test`) |
+| `make stop`          | Stop the Dapr sidecar and API server                                                                     |
+| `make start-no-dapr` | Build and start API server without Dapr (HTTP health check only)                                         |
+| `make run`           | Alias for `start-no-dapr`                                                                                |
 
 ### Test & Verify
 
-| Target                        | Description                                                                                                              |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `make test`                   | Run unit tests                                                                                                           |
-| `make test-watch`             | Run unit tests in watch mode                                                                                             |
-| `make integration-test`       | Run integration tests (requires running Dapr stack + PostgreSQL)                                                         |
-| `make smoke`                  | HTTP smoke test against built server (no Dapr)                                                                           |
-| `make e2e`                    | Shallow e2e: runs the production image standalone and verifies the Dapr-unreachable error path                           |
-| `make e2e-dapr`               | Full-stack e2e: runs the production image alongside a real Dapr sidecar and asserts a workflow COMPLETES                 |
-| `make e2e-durability`         | Workflow replay e2e: kills the app mid-flight and asserts the workflow still COMPLETES from Redis-persisted state        |
-| `make dast`                   | ZAP baseline DAST scan (local: builds image, runs container, scans, cleans up)                                           |
-| `make docker-smoke-test`      | Boot-marker smoke test; starts `smoke-test` container and leaves it running for DAST (CI)                                |
-| `make dast-scan`              | Run ZAP scan against an already-running container on `localhost:3100` (CI)                                               |
-| `make docker-verify-manifest` | Assert a published multi-arch image has `linux/amd64` + `linux/arm64` and no attestations (CI; requires `IMAGE_REF=...`) |
-| `make check-workflow`         | Trigger a workflow via API and poll its status                                                                           |
-| `make check-db`               | Hit the `/db-health` endpoint                                                                                            |
+| Target                        | Description                                                                                                                                                                                        |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make test`                   | Run unit tests                                                                                                                                                                                     |
+| `make test-watch`             | Run unit tests in watch mode                                                                                                                                                                       |
+| `make integration-test`       | Run integration tests — auto-provisions infra (`up`) + backgrounded Dapr sidecar (`start-bg`), then runs the Vitest integration suite; leaves the stack up (`make stop` + `make down` to clean up) |
+| `make smoke`                  | HTTP smoke test against built server (no Dapr)                                                                                                                                                     |
+| `make e2e`                    | Shallow e2e: runs the production image standalone and verifies the Dapr-unreachable error path                                                                                                     |
+| `make e2e-dapr`               | Full-stack e2e: runs the production image alongside a real Dapr sidecar and asserts a workflow COMPLETES                                                                                           |
+| `make e2e-durability`         | Workflow replay e2e: kills the app mid-flight and asserts the workflow still COMPLETES from Redis-persisted state                                                                                  |
+| `make dast`                   | ZAP baseline DAST scan (local: builds image, runs container, scans, cleans up)                                                                                                                     |
+| `make docker-smoke-test`      | Boot-marker smoke test; starts `smoke-test` container and leaves it running for DAST (CI)                                                                                                          |
+| `make dast-scan`              | Run ZAP scan against an already-running container on `localhost:3100` (CI)                                                                                                                         |
+| `make docker-verify-manifest` | Assert a published multi-arch image has `linux/amd64` + `linux/arm64` and no attestations (CI; requires `IMAGE_REF=...`)                                                                           |
+| `make check-workflow`         | Trigger a workflow via API and poll its status                                                                                                                                                     |
+| `make check-db`               | Hit the `/db-health` endpoint                                                                                                                                                                      |
 
 ### CI & Release
 
