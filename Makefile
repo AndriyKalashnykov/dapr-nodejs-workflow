@@ -399,7 +399,23 @@ dapr-init: deps
 		echo "Stopping container on port $(REDIS_PORT) to free it for dapr init..."; \
 		podman stop $$(podman ps -q --filter "publish=$(REDIS_PORT)"); \
 	fi
-	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
+	@# `dapr init` binds FIXED host ports (placement metrics :59090, scheduler
+	@# :50006/:59091, redis :6379, zipkin :9411). On CI runners those occasionally
+	@# fail with "failed to bind host port for 0.0.0.0:59090: address already in
+	@# use" — either a dapr_* container leaked by a racing run, or a transient
+	@# Docker port-allocation hiccup. In CI, retry once after a clean uninstall +
+	@# stale-container sweep; locally, run a plain init so a dev's Dapr is intact.
+	@if [ -n "$$CI" ]; then \
+		dapr init --runtime-version $(DAPR_RUNTIME_VERSION) || { \
+			echo "dapr init failed (host-port bind race?); cleaning up and retrying once..."; \
+			dapr uninstall 2>/dev/null || true; \
+			docker rm -f $$(docker ps -aq --filter "name=dapr_") 2>/dev/null || true; \
+			sleep 3; \
+			dapr init --runtime-version $(DAPR_RUNTIME_VERSION); \
+		}; \
+	else \
+		dapr init --runtime-version $(DAPR_RUNTIME_VERSION); \
+	fi
 
 # $(call render_components,<src-dir>,<dst-dir>) — copy the components, substituting
 # the DB host-ports with $(POSTGRES_PORT)/$(REDIS_PORT). Matched by position
