@@ -285,7 +285,7 @@ check-node-alignment:
 	exit $$fail
 
 #static-check: @ Composite quality gate (check-node-alignment + lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + diagrams-check + mermaid-lint)
-static-check: check-node-alignment lint vulncheck secrets trivy-fs deps-prune-check components-check diagrams-check mermaid-lint
+static-check: check-node-alignment lint vulncheck secrets trivy-fs deps-prune-check components-check render-check diagrams-check mermaid-lint
 	@echo "Static check passed."
 
 #test: @ Run unit tests
@@ -421,6 +421,16 @@ render-components:
 #render-ci-components: @ Render CI Dapr components with the current $(POSTGRES_PORT)/$(REDIS_PORT)
 render-ci-components:
 	@$(call render_components,$(CI_COMPONENTS_PATH),$(RUN_CI_COMPONENTS_DIR))
+
+#render-check: @ Gate: assert render-components actually substitutes the DB host-port into the Dapr components
+render-check:
+	@set -eu; tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; fail=0; \
+	$(MAKE) --no-print-directory render-components POSTGRES_PORT=15432 REDIS_PORT=16379 RUN_COMPONENTS_DIR="$$tmp" >/dev/null; \
+	grep -q '@localhost:15432/' "$$tmp/postgres.yaml" || { echo "FAIL: Postgres host-port not substituted into the binding url"; fail=1; }; \
+	grep -q 'value: localhost:16379' "$$tmp/redis.yaml" || { echo "FAIL: Redis host-port not substituted into redisHost"; fail=1; }; \
+	grep -q ':daprrulz@' "$$tmp/postgres.yaml" || { echo "FAIL: Postgres password dropped by the render"; fail=1; }; \
+	if grep -qE 'localhost:(5432|6379)' "$$tmp"/*.yaml; then echo "FAIL: a default port survived the override render"; fail=1; fi; \
+	[ "$$fail" -eq 0 ] && echo "render-check passed (POSTGRES_PORT/REDIS_PORT reach the rendered components)." || { echo "render-check FAILED"; exit 1; }
 
 #start: @ Build and start the API server with Dapr sidecar
 start: build render-components
@@ -782,5 +792,5 @@ renovate-validate: deps
 	check-workflow check-db check-version release tag-release \
 	image-build image-run image-stop e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
 	components-check diagrams diagrams-clean diagrams-check check-node-alignment mermaid-lint \
-	render-components render-ci-components \
+	render-components render-ci-components render-check \
 	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate
