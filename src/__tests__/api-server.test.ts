@@ -67,25 +67,55 @@ describe("POST /process-payload", () => {
   });
 });
 
+// Point the lazy-init sidecar gRPC probe at a closed local port so checkPort
+// fails fast (connection refused — no timeout wait), initializeWorkflow throws,
+// and the handler's 500 catch-branch fires. Deterministic without mocking Dapr;
+// the unit suite never starts a sidecar, so workflowInitialized stays false.
+async function withUnreachableDapr<T>(fn: () => Promise<T>): Promise<T> {
+  const prevHost = process.env.DAPR_HOST;
+  const prevPort = process.env.DAPR_GRPC_PORT;
+  process.env.DAPR_HOST = "localhost";
+  process.env.DAPR_GRPC_PORT = "19999"; // nothing listens here
+  try {
+    return await fn();
+  } finally {
+    if (prevHost === undefined) delete process.env.DAPR_HOST;
+    else process.env.DAPR_HOST = prevHost;
+    if (prevPort === undefined) delete process.env.DAPR_GRPC_PORT;
+    else process.env.DAPR_GRPC_PORT = prevPort;
+  }
+}
+
 describe("GET /workflow/:id/status", () => {
   it("returns 500 when the Dapr sidecar is unreachable", async () => {
-    // Point the lazy-init sidecar gRPC probe at a closed local port so checkPort
-    // fails fast (connection refused — no timeout wait), initializeWorkflow throws,
-    // and the handler's 500 catch-branch fires. Deterministic without mocking Dapr;
-    // the unit suite never starts a sidecar, so workflowInitialized stays false.
-    const prevHost = process.env.DAPR_HOST;
-    const prevPort = process.env.DAPR_GRPC_PORT;
-    process.env.DAPR_HOST = "localhost";
-    process.env.DAPR_GRPC_PORT = "19999"; // nothing listens here
-    try {
+    await withUnreachableDapr(async () => {
       const res = await request(app).get("/workflow/unreachable-id/status");
       expect(res.status).toBe(500);
       expect(res.body.error).toBe("Failed to get workflow status");
-    } finally {
-      if (prevHost === undefined) delete process.env.DAPR_HOST;
-      else process.env.DAPR_HOST = prevHost;
-      if (prevPort === undefined) delete process.env.DAPR_GRPC_PORT;
-      else process.env.DAPR_GRPC_PORT = prevPort;
-    }
+    });
+  });
+});
+
+describe("POST /process-payload", () => {
+  it("returns 500 when the Dapr sidecar is unreachable", async () => {
+    await withUnreachableDapr(async () => {
+      const res = await request(app)
+        .post("/process-payload")
+        .set("Content-Type", "application/json")
+        .send(JSON.stringify({ payload: { name: "x" }, delayMs: 0 }));
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe("Failed to schedule workflow");
+    });
+  });
+});
+
+describe("GET /db-health", () => {
+  it("returns 500 with status error when the Dapr sidecar is unreachable", async () => {
+    await withUnreachableDapr(async () => {
+      const res = await request(app).get("/db-health");
+      expect(res.status).toBe(500);
+      expect(res.body.status).toBe("error");
+      expect(res.body.message).toBeDefined();
+    });
   });
 });

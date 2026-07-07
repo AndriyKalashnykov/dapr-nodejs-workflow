@@ -68,5 +68,12 @@ EXPOSE ${APP_INTERNAL_PORT}
 # Explicit USER ensures Kubernetes runAsNonRoot: true passes admission.
 USER ${APP_UID}:${APP_GID}
 
+# Liveness probe. Distroless has no shell/curl, so use node's net module to TCP-
+# connect to the app's listen port. 127.0.0.1 (not localhost) avoids IPv6-first
+# resolution; the CMD body reads $PORT at runtime, but the flag durations MUST be
+# literal — HEALTHCHECK flags are parsed at build time and are NOT variable-expanded.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD ["/nodejs/bin/node", "-e", "const s=require('net').connect(Number(process.env.PORT||3000),'127.0.0.1',()=>{s.end();process.exit(0)});s.on('error',()=>process.exit(1))"]
+
 # Distroless nodejs ENTRYPOINT is ["/nodejs/bin/node"]
 CMD ["dist/api-server.js"]

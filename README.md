@@ -432,15 +432,16 @@ Run `make help` to see all targets in one list.
 
 ### Docker & Image
 
-| Target                | Description                                                                                            |
-| --------------------- | ------------------------------------------------------------------------------------------------------ |
-| `make image-build`    | Build the production Docker image (multi-stage)                                                        |
-| `make image-run`      | Run the Docker image standalone (no Dapr)                                                              |
-| `make image-stop`     | Stop the running image container                                                                       |
-| `make e2e`            | Shallow e2e: production image standalone, verifies the Dapr-unreachable error path                     |
-| `make e2e-dapr`       | Full-stack e2e: production image + Dapr sidecar, asserts a workflow COMPLETES end-to-end               |
-| `make e2e-durability` | Workflow replay e2e: kills the app mid-flight, asserts the workflow resumes from Redis-persisted state |
-| `make dast`           | ZAP baseline DAST scan against the built image                                                         |
+| Target                | Description                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `make image-build`    | Build the production Docker image (multi-stage)                                                                           |
+| `make image-run`      | Run the Docker image standalone (no Dapr)                                                                                 |
+| `make image-stop`     | Stop the running image container                                                                                          |
+| `make e2e-compose`    | Compose-config e2e: boot PostgreSQL + Redis via Compose, assert the seeded DB is queryable + Redis round-trips, tear down |
+| `make e2e`            | Shallow e2e: production image standalone, verifies the Dapr-unreachable error path                                        |
+| `make e2e-dapr`       | Full-stack e2e: production image + Dapr sidecar, asserts a workflow COMPLETES end-to-end                                  |
+| `make e2e-durability` | Workflow replay e2e: kills the app mid-flight, asserts the workflow resumes from Redis-persisted state                    |
+| `make dast`           | ZAP baseline DAST scan against the built image                                                                            |
 
 ### Utilities
 
@@ -461,6 +462,7 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 | **static-check**     | changes                            | `make static-check` (check-node-alignment, Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check, render-check, diagrams-check, mermaid-lint)                                                                                                                                               |
 | **build**            | changes, static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                                                                                                                                                                                                    |
 | **test**             | changes, static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                                                                                                                                                                                             |
+| **e2e-compose**      | changes, build, test               | `make e2e-compose` (boots the Compose stack, asserts the seeded DB is queryable + Redis round-trips, tears down; covers the Compose config the service-container jobs don't). Skipped under act.                                                                                                                                                          |
 | **e2e**              | changes, build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                                                                                                                                                                                           |
 | **e2e-dapr**         | changes, build, test               | `make ci-seed-db` + build image + `./e2e/e2e-dapr.sh` (production image alongside `dapr run` sidecar, asserts workflow COMPLETES). Skipped under act.                                                                                                                                                                                                     |
 | **integration-test** | changes, build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make integration-test` (PostgreSQL service container + Dapr CLI pinned via `.mise.toml`). Skipped under act.                                                                                                                                                                                      |
@@ -504,9 +506,9 @@ The `cleanup-runs.yml` workflow runs weekly to delete old workflow runs and stal
 
 ### Required Secrets and Variables
 
-| Name  | Type     | Used by                                                       | How to set                                                                                                                                                                                                                                                                                              |
-| ----- | -------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACT` | Variable | `integration-test`, `e2e-dapr`, `e2e-durability`, `dast` jobs | Set to `true` under [nektos/act](https://github.com/nektos/act) to skip jobs that need service containers or docker-in-docker bind mounts (`integration-test`, `e2e-dapr`, `e2e-durability`, `dast`). Set via **Settings > Secrets and variables > Actions > Variables tab > New repository variable**. |
+| Name  | Type     | Used by                                                                      | How to set                                                                                                                                                                                                                                                                                                             |
+| ----- | -------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACT` | Variable | `integration-test`, `e2e-dapr`, `e2e-durability`, `e2e-compose`, `dast` jobs | Set to `true` under [nektos/act](https://github.com/nektos/act) to skip jobs that need service containers or docker-in-docker bind mounts (`integration-test`, `e2e-dapr`, `e2e-durability`, `e2e-compose`, `dast`). Set via **Settings > Secrets and variables > Actions > Variables tab > New repository variable**. |
 
 `GITHUB_TOKEN` is provisioned automatically by GitHub Actions; no manual setup is needed.
 

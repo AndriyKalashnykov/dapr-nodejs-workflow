@@ -632,6 +632,13 @@ image-run: image-stop
 image-stop:
 	@$(DOCKER) rm -f $(IMAGE_NAME) >/dev/null 2>&1 || true
 
+#e2e-compose: @ E2E for docker-compose.yaml config: boot the stack, assert Postgres seeded+queryable and Redis round-trips, tear down
+e2e-compose:
+	@$(MAKE) --no-print-directory check-ports
+	@DOCKER="$(DOCKER)" POSTGRES_PORT="$(POSTGRES_PORT)" REDIS_PORT="$(REDIS_PORT)" \
+		POSTGRES_READY_TIMEOUT="$(POSTGRES_READY_TIMEOUT)" REDIS_READY_TIMEOUT="$(REDIS_READY_TIMEOUT)" \
+		BOOT_POLL_INTERVAL="$(BOOT_POLL_INTERVAL)" ./e2e/e2e-compose.sh
+
 #e2e: @ End-to-end test of the production Docker image
 e2e: image-build
 	@$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(TEST_HOST_PORT)"
@@ -883,7 +890,7 @@ renovate-validate: deps
 	test test-watch integration-test smoke check update upgrade \
 	check-ports up down postgres-start postgres-stop dapr-init start start-bg stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
-	image-build image-run image-stop e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
+	image-build image-run image-stop e2e-compose e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
 	components-check diagrams diagrams-clean diagrams-check check-node-alignment mermaid-lint \
 	render-components render-ci-components render-check \
 	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate
