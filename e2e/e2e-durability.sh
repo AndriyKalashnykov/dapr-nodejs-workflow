@@ -30,6 +30,11 @@ RESOURCES_PATH="${RESOURCES_PATH:-./components}"
 CONTAINER_NAME="${CONTAINER_NAME:-dapr-nodejs-workflow-e2e-durability}"
 COMPLETION_TIMEOUT="${COMPLETION_TIMEOUT:-90}"
 WORKFLOW_DELAY_MS="${WORKFLOW_DELAY_MS:-15000}"
+# Poll cadence for boot/readiness loops + mid-flight kill wait (env-overridable;
+# mirrors .env.example). Sidecar/app ports stay ephemeral (pick_port) by design.
+BOOT_POLL_ATTEMPTS="${BOOT_POLL_ATTEMPTS:-30}"
+BOOT_POLL_INTERVAL="${BOOT_POLL_INTERVAL:-1}"
+MID_FLIGHT_WAIT="${MID_FLIGHT_WAIT:-5}"
 
 cleanup() {
   local exit_code=$?
@@ -51,13 +56,13 @@ start_app() {
     -e "DAPR_HTTP_PORT=$DAPR_HTTP_PORT" \
     "$IMAGE" >/dev/null
 
-  for i in $(seq 1 30); do
+  for i in $(seq 1 "$BOOT_POLL_ATTEMPTS"); do
     if curl -sf "http://$HOST:$APP_PORT/" >/dev/null 2>&1; then
       return 0
     fi
-    sleep 1
-    if [ "$i" -eq 30 ]; then
-      echo "FAIL: app container did not bind :$APP_PORT within 30s"
+    sleep "$BOOT_POLL_INTERVAL"
+    if [ "$i" -eq "$BOOT_POLL_ATTEMPTS" ]; then
+      echo "FAIL: app container did not bind :$APP_PORT within ${BOOT_POLL_ATTEMPTS}s"
       "$DOCKER" logs "$CONTAINER_NAME"
       exit 1
     fi
@@ -81,13 +86,13 @@ dapr run \
   --log-level warn \
   -- sleep 86400 >/tmp/e2e-durability.log 2>&1 &
 
-for i in $(seq 1 30); do
+for i in $(seq 1 "$BOOT_POLL_ATTEMPTS"); do
   if curl -sf "http://$HOST:$DAPR_HTTP_PORT/v1.0/healthz" >/dev/null 2>&1; then
     break
   fi
-  sleep 1
-  if [ "$i" -eq 30 ]; then
-    echo "FAIL: Dapr sidecar did not become healthy within 30s"
+  sleep "$BOOT_POLL_INTERVAL"
+  if [ "$i" -eq "$BOOT_POLL_ATTEMPTS" ]; then
+    echo "FAIL: Dapr sidecar did not become healthy within ${BOOT_POLL_ATTEMPTS}s"
     tail -40 /tmp/e2e-durability.log || true
     exit 1
   fi
@@ -104,8 +109,8 @@ WF_ID=$(printf '%s' "$SCHEDULE_RESP" | python3 -c 'import sys,json; print(json.l
 echo "  workflow id: $WF_ID"
 
 echo ""
-echo "=== [4/6] Wait 5s so delayActivity is mid-flight, then KILL app container ==="
-sleep 5
+echo "=== [4/6] Wait ${MID_FLIGHT_WAIT}s so delayActivity is mid-flight, then KILL app container ==="
+sleep "$MID_FLIGHT_WAIT"
 PRE_KILL_STATUS=$(curl -sf "http://$HOST:$APP_PORT/workflow/$WF_ID/status" | \
   python3 -c 'import sys,json; print(json.load(sys.stdin).get("status",""))')
 echo "  pre-kill status: $PRE_KILL_STATUS"
@@ -145,7 +150,7 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
         ;;
     esac
   fi
-  sleep 2
+  sleep "$BOOT_POLL_INTERVAL"
 done
 
 if [ "$STATUS" != "COMPLETED" ]; then

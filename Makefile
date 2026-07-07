@@ -33,6 +33,25 @@ TEST_HOST_PORT      ?= 3100
 
 # Host ports the compose stack (`make up`) binds; `check-ports` guards them.
 COMPOSE_PORTS       := $(POSTGRES_PORT) $(REDIS_PORT)
+# Host ports the app + Dapr sidecar bind (`make start`/`start-bg`/`ci-dapr-start`).
+RUN_PORTS           := $(PORT) $(DAPR_HTTP_PORT) $(DAPR_GRPC_PORT)
+# The set `check-ports` probes; overridable per flow (up → compose ports,
+# start → run ports) via `$(MAKE) check-ports CHECK_PORTS="..."`.
+CHECK_PORTS         ?= $(COMPOSE_PORTS)
+
+# --- Readiness timeouts / poll cadence (seconds) ---
+# Mirror .env.example; `?=` lets the env / `.env` / CI override each knob.
+POSTGRES_READY_TIMEOUT  ?= 60
+REDIS_READY_TIMEOUT     ?= 30
+SERVER_READY_TIMEOUT    ?= 15
+DAPR_READY_TIMEOUT      ?= 30
+DAPR_GRPC_READY_TIMEOUT ?= 15
+# Image boot-marker poll (e2e / smoke / dast): attempts x interval.
+BOOT_POLL_ATTEMPTS      ?= 30
+BOOT_POLL_INTERVAL      ?= 1
+# Boot-marker deadline (docker-smoke-test) and workflow settle wait (check-workflow).
+BOOT_MARKER_TIMEOUT     ?= 30
+WORKFLOW_SETTLE_SECONDS ?= 5
 
 # --- Identifiers and paths ---
 # Dapr app-id (also the `make stop` lookup key).
@@ -316,7 +335,7 @@ smoke: build
 	@trap 'kill $$SERVER_PID 2>/dev/null || true' EXIT; \
 	node dist/api-server.js & SERVER_PID=$$!; \
 	echo "Waiting for server on $(HOST):$(PORT)..."; \
-	timeout 10 bash -c 'until curl -sf http://$(HOST):$(PORT)/ > /dev/null; do sleep 1; done' || { echo "Server failed to start"; exit 1; }; \
+	timeout $(SERVER_READY_TIMEOUT) bash -c 'until curl -sf http://$(HOST):$(PORT)/ > /dev/null; do sleep $(BOOT_POLL_INTERVAL); done' || { echo "Server failed to start"; exit 1; }; \
 	echo "Server is up, running smoke tests..."; \
 	curl -sf http://$(HOST):$(PORT)/ | grep -q "Dapr Workflow API" || { echo "Health check failed"; exit 1; }; \
 	echo "Smoke tests passed"
@@ -332,12 +351,14 @@ update: deps
 upgrade: deps
 	@pnpm upgrade
 
-#check-ports: @ Fail early (naming the offending container) if a compose port is already bound
+#check-ports: @ Fail early (naming the offending container) if a bound port would collide (CHECK_PORTS overridable)
 check-ports:
 	@# bash `/dev/tcp` connect = "something is listening" (SHELL is bash). No `set -e`:
 	@# a free port makes the connect fail, which is the expected/normal case.
+	@# Default set is the compose ports; `start`/`start-bg`/`ci-dapr-start` override
+	@# CHECK_PORTS with the app + sidecar ports ($(RUN_PORTS)).
 	@set -uo pipefail; conflict=0; \
-	for p in $(COMPOSE_PORTS); do \
+	for p in $(CHECK_PORTS); do \
 		if (exec 3<>/dev/tcp/$(HOST)/$$p) 2>/dev/null; then \
 			exec 3>&- 2>/dev/null || true; \
 			holder=$$( { docker ps --format '{{.Names}}|{{.Ports}}' 2>/dev/null; \
@@ -350,13 +371,13 @@ check-ports:
 	done; \
 	if [ "$$conflict" -ne 0 ]; then \
 		echo ""; \
-		echo "Free the port(s) above (e.g. stop that container), or export alternative"; \
-		echo "ports so every target (up, start, seed) agrees on them:"; \
-		echo "    export POSTGRES_PORT=<free-port> REDIS_PORT=<free-port>"; \
-		echo "    make up && make start"; \
+		echo "Free the port(s) above (e.g. stop that container), or export an"; \
+		echo "alternative for the relevant *_PORT to a free value, e.g.:"; \
+		echo "    export POSTGRES_PORT=<free> REDIS_PORT=<free>   # compose (make up)"; \
+		echo "    export PORT=<free> DAPR_HTTP_PORT=<free> DAPR_GRPC_PORT=<free>  # app+sidecar (make start)"; \
 		exit 1; \
 	fi; \
-	echo "check-ports: ports $(COMPOSE_PORTS) are free."
+	echo "check-ports: ports $(CHECK_PORTS) are free."
 
 #up: @ Start PostgreSQL and Redis via Podman Compose
 up:
@@ -366,10 +387,10 @@ up:
 		$(MAKE) --no-print-directory check-ports || exit 1; \
 		POSTGRES_PORT=$(POSTGRES_PORT) REDIS_PORT=$(REDIS_PORT) podman compose up -d; \
 		echo "Waiting for PostgreSQL to accept connections..."; \
-		timeout 60 bash -c 'until podman compose exec -T postgres pg_isready >/dev/null 2>&1; do sleep 1; done' \
+		timeout $(POSTGRES_READY_TIMEOUT) bash -c 'until podman compose exec -T postgres pg_isready >/dev/null 2>&1; do sleep $(BOOT_POLL_INTERVAL); done' \
 			|| { echo "ERROR: PostgreSQL did not become ready within 60s:"; podman compose ps; exit 1; }; \
 		echo "Waiting for Redis to accept connections..."; \
-		timeout 30 bash -c 'until [ "$$(podman compose exec -T redis redis-cli ping 2>/dev/null | tr -d "[:space:]")" = PONG ]; do sleep 1; done' \
+		timeout $(REDIS_READY_TIMEOUT) bash -c 'until [ "$$(podman compose exec -T redis redis-cli ping 2>/dev/null | tr -d "[:space:]")" = PONG ]; do sleep $(BOOT_POLL_INTERVAL); done' \
 			|| { echo "ERROR: Redis did not become ready within 30s"; exit 1; }; \
 		echo "Infrastructure is ready."; \
 	fi
@@ -378,17 +399,22 @@ up:
 down:
 	@podman compose down
 
-#postgres-start: @ Start PostgreSQL in Podman
+#postgres-start: @ Start only PostgreSQL via Podman Compose (env-driven; alt to `make up`)
 postgres-start:
-	@if podman ps -q --filter "name=dapr-nodejs-postgres" | grep -q .; then \
-		echo "PostgreSQL container is already running."; \
+	@if podman compose ps postgres --format '{{.State}}' 2>/dev/null | grep -q running; then \
+		echo "PostgreSQL is already running."; \
 	else \
-		./run-postgres.sh; \
+		$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(POSTGRES_PORT)" || exit 1; \
+		POSTGRES_PORT=$(POSTGRES_PORT) podman compose up -d postgres; \
+		echo "Waiting for PostgreSQL to accept connections..."; \
+		timeout $(POSTGRES_READY_TIMEOUT) bash -c 'until podman compose exec -T postgres pg_isready >/dev/null 2>&1; do sleep $(BOOT_POLL_INTERVAL); done' \
+			|| { echo "ERROR: PostgreSQL did not become ready within $(POSTGRES_READY_TIMEOUT)s"; podman compose ps; exit 1; }; \
+		echo "PostgreSQL is ready on $(HOST):$(POSTGRES_PORT)."; \
 	fi
 
-#postgres-stop: @ Stop PostgreSQL Podman container
+#postgres-stop: @ Stop the PostgreSQL Compose service
 postgres-stop:
-	@podman stop dapr-nodejs-postgres 2>/dev/null || echo "PostgreSQL container is not running."
+	@podman compose stop postgres 2>/dev/null || echo "PostgreSQL service is not running."
 
 #dapr-init: @ Initialize Dapr (pinned runtime; locally stops a conflicting Redis on $(REDIS_PORT) first)
 dapr-init: deps
@@ -450,6 +476,7 @@ render-check:
 
 #start: @ Build and start the API server with Dapr sidecar
 start: build render-components
+	@$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(RUN_PORTS)"
 	@DAPR_HOST=$(HOST) DAPR_GRPC_PORT=$(DAPR_GRPC_PORT) DAPR_HTTP_PORT=$(DAPR_HTTP_PORT) \
 	dapr run \
 		--app-id $(APP_ID) \
@@ -469,6 +496,7 @@ start-bg: build render-components
 		echo "Dapr sidecar already running on $(HOST):$(DAPR_HTTP_PORT) — reusing it."; \
 		exit 0; \
 	fi; \
+	$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(RUN_PORTS)" || exit 1; \
 	DAPR_HOST=$(HOST) DAPR_GRPC_PORT=$(DAPR_GRPC_PORT) DAPR_HTTP_PORT=$(DAPR_HTTP_PORT) \
 	nohup dapr run \
 		--app-id $(APP_ID) \
@@ -480,11 +508,11 @@ start-bg: build render-components
 		--resources-path $(RUN_COMPONENTS_DIR) \
 		-- node dist/api-server.js > /tmp/dapr-run-local.log 2>&1 & \
 	echo "Waiting for Dapr sidecar on $(HOST):$(DAPR_HTTP_PORT)..."; \
-	timeout 30 bash -c 'until curl -sf http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz >/dev/null; do sleep 1; done' \
+	timeout $(DAPR_READY_TIMEOUT) bash -c 'until curl -sf http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz >/dev/null; do sleep $(BOOT_POLL_INTERVAL); done' \
 		|| { echo "ERROR: Dapr sidecar did not become ready. Is Dapr initialized? Run 'make dapr-init' once."; \
 		     echo "=== dapr run log ==="; cat /tmp/dapr-run-local.log; exit 1; }; \
 	echo "Waiting for API server on $(HOST):$(PORT)..."; \
-	timeout 15 bash -c 'until curl -sf http://$(HOST):$(PORT)/ >/dev/null; do sleep 1; done' \
+	timeout $(SERVER_READY_TIMEOUT) bash -c 'until curl -sf http://$(HOST):$(PORT)/ >/dev/null; do sleep $(BOOT_POLL_INTERVAL); done' \
 		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run-local.log; exit 1; }; \
 	echo "Dapr sidecar and API server are ready."
 
@@ -515,8 +543,8 @@ check-workflow:
 	if [ -z "$$ID" ]; then echo "Server not responding on $(HOST):$(PORT) (is it running with Dapr?)"; \
 	else \
 	echo "Workflow ID: $$ID"; \
-	echo "Waiting 5s before polling status..."; \
-	sleep 5; \
+	echo "Waiting $(WORKFLOW_SETTLE_SECONDS)s before polling status..."; \
+	sleep $(WORKFLOW_SETTLE_SECONDS); \
 	STATUS=$$(curl -s "http://$(HOST):$(PORT)/workflow/$$ID/status"); \
 	echo "$$STATUS" | python3 -m json.tool 2>/dev/null || echo "$$STATUS"; \
 	fi
@@ -587,10 +615,10 @@ e2e: image-build
 	echo "Starting container $$SVC on $(HOST):$(TEST_HOST_PORT)..."; \
 	$(DOCKER) run -d --name $$SVC -p $(TEST_HOST_PORT):3000 $(IMAGE) >/dev/null; \
 	echo "Waiting for HTTP..."; \
-	for i in $$(seq 1 30); do \
+	for i in $$(seq 1 $(BOOT_POLL_ATTEMPTS)); do \
 		curl -sf "http://$(HOST):$(TEST_HOST_PORT)/" >/dev/null 2>&1 && break; \
-		sleep 1; \
-		[ "$$i" -eq 30 ] && { echo "Container failed to start:"; $(DOCKER) logs $$SVC; exit 1; }; \
+		sleep $(BOOT_POLL_INTERVAL); \
+		[ "$$i" -eq $(BOOT_POLL_ATTEMPTS) ] && { echo "Container failed to start:"; $(DOCKER) logs $$SVC; exit 1; }; \
 	done; \
 	echo ""; \
 	echo "[1/3] GET / (health endpoint)"; \
@@ -630,15 +658,15 @@ e2e-durability: image-build render-components
 docker-smoke-test:
 	@set -eu; \
 	docker run -d --name smoke-test -p $(TEST_HOST_PORT):3000 $(IMAGE_NAME):scan; \
-	deadline=$$(($$(date +%s) + 30)); \
+	deadline=$$(($$(date +%s) + $(BOOT_MARKER_TIMEOUT))); \
 	while [ $$(date +%s) -lt $$deadline ]; do \
 		if docker logs smoke-test 2>&1 | grep -qE 'REST API server running|listening on|started on port'; then \
 			echo "PASS: container booted successfully"; \
 			exit 0; \
 		fi; \
-		sleep 2; \
+		sleep $(BOOT_POLL_INTERVAL); \
 	done; \
-	echo "FAIL: container did not boot within 30s"; \
+	echo "FAIL: container did not boot within $(BOOT_MARKER_TIMEOUT)s"; \
 	docker logs smoke-test; \
 	exit 1
 
@@ -687,10 +715,10 @@ dast: image-build
 	@$(DOCKER) rm -f $(IMAGE_NAME)-dast 2>/dev/null || true
 	@$(DOCKER) run -d --name $(IMAGE_NAME)-dast -p $(TEST_HOST_PORT):3000 $(IMAGE) >/dev/null
 	@echo "Waiting for container to become healthy..."
-	@for i in $$(seq 1 30); do \
+	@for i in $$(seq 1 $(BOOT_POLL_ATTEMPTS)); do \
 		curl -sf http://$(HOST):$(TEST_HOST_PORT)/ >/dev/null 2>&1 && break; \
-		sleep 1; \
-		[ "$$i" -eq 30 ] && { echo "Container failed to start"; $(DOCKER) logs $(IMAGE_NAME)-dast; $(DOCKER) rm -f $(IMAGE_NAME)-dast; exit 1; }; \
+		sleep $(BOOT_POLL_INTERVAL); \
+		[ "$$i" -eq $(BOOT_POLL_ATTEMPTS) ] && { echo "Container failed to start"; $(DOCKER) logs $(IMAGE_NAME)-dast; $(DOCKER) rm -f $(IMAGE_NAME)-dast; exit 1; }; \
 	done
 	@# ZAP's container writes into the bind mount as root, so a stale zap-output
 	@# from a prior run is root-owned — a later `chmod`/`rm` by the host user then
@@ -770,16 +798,16 @@ ci-dapr-start: render-ci-components
 		--log-level warn \
 		-- node dist/api-server.js > /tmp/dapr-run.log 2>&1 & \
 	echo "Waiting for Dapr sidecar on $(HOST):$(DAPR_HTTP_PORT)..." && \
-	timeout 30 bash -c \
-		'until curl -sf http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz > /dev/null; do sleep 1; done' \
+	timeout $(DAPR_READY_TIMEOUT) bash -c \
+		'until curl -sf http://$(HOST):$(DAPR_HTTP_PORT)/v1.0/healthz > /dev/null; do sleep $(BOOT_POLL_INTERVAL); done' \
 		|| { echo "=== dapr run log ==="; cat /tmp/dapr-run.log; exit 1; } && \
 	echo "Waiting for Dapr gRPC on $(HOST):$(DAPR_GRPC_PORT)..." && \
-	timeout 15 bash -c \
-		'until nc -z $(HOST) $(DAPR_GRPC_PORT) 2>/dev/null; do sleep 1; done' \
+	timeout $(DAPR_GRPC_READY_TIMEOUT) bash -c \
+		'until nc -z $(HOST) $(DAPR_GRPC_PORT) 2>/dev/null; do sleep $(BOOT_POLL_INTERVAL); done' \
 		|| { echo "gRPC port $(DAPR_GRPC_PORT) not available on $(HOST)"; exit 1; } && \
 	echo "Waiting for API server on $(HOST):$(PORT)..." && \
-	timeout 15 bash -c \
-		'until curl -sf http://$(HOST):$(PORT)/ > /dev/null; do sleep 1; done' \
+	timeout $(SERVER_READY_TIMEOUT) bash -c \
+		'until curl -sf http://$(HOST):$(PORT)/ > /dev/null; do sleep $(BOOT_POLL_INTERVAL); done' \
 		|| { echo "Server failed to start"; tail -20 /tmp/dapr-run.log; exit 1; } && \
 	echo "Dapr sidecar and API server are ready."
 
