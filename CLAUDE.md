@@ -11,6 +11,7 @@ Dapr Workflow demo using the Dapr JS SDK with an Express HTTP API frontend. A si
 ```bash
 # One-time setup
 make deps                # Bootstrap mise + install node/pnpm (from .nvmrc / .mise.toml), then check podman + git
+cp .env.example .env     # Optional: override any port/host/timeout (compose + make + scripts read it)
 make dapr-init           # Initialize Dapr (starts Redis, placement, scheduler containers)
 
 # Start infrastructure + server (two terminals)
