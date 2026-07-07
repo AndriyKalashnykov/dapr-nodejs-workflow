@@ -11,6 +11,7 @@ Dapr Workflow demo using the Dapr JS SDK with an Express HTTP API frontend. A si
 ```bash
 # One-time setup
 make deps                # Bootstrap mise + install node/pnpm (from .nvmrc / .mise.toml), then check podman + git
+cp .env.example .env     # Optional: override any port/host/timeout (compose + make + scripts read it)
 make dapr-init           # Initialize Dapr (starts Redis, placement, scheduler containers)
 
 # Start infrastructure + server (two terminals)
@@ -257,8 +258,9 @@ A second workflow, `.github/workflows/cleanup-runs.yml`, runs weekly to delete o
 
 **`.env.example` (repo root, committed) is the single source of truth for every
 operator-tunable value.** Copy it to `.env` (gitignored) and override as needed
-(`cp .env.example .env`); Docker Compose auto-loads `.env`, the Makefile mirrors
-each value as a `?=` default, and the e2e scripts fall back to the same defaults.
+(`cp .env.example .env`); Docker Compose auto-loads `.env`, the Makefile
+`-include`s it (its `?=` values are the fallback when `.env` is absent), and the
+e2e scripts fall back to the same defaults.
 Never hardcode any of these elsewhere. The most-used knobs:
 
 | Variable                         | Default            | Purpose                                                                                                                   |
