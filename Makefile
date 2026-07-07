@@ -739,7 +739,25 @@ ci-seed-db:
 
 #ci-dapr-start: @ Initialize Dapr and start sidecar with CI components (CI only)
 ci-dapr-start: render-ci-components
-	@dapr init --runtime-version $(DAPR_RUNTIME_VERSION)
+	@# `dapr init` docker-pulls daprio/dapr + redis + zipkin from Docker Hub, then
+	@# binds FIXED control-plane host ports. On shared CI runner IPs, anonymous
+	@# Docker Hub pulls intermittently reset ("connection reset by peer") and the
+	@# host-port bind can race a leaked dapr_* container from a prior run — a bare
+	@# init hard-fails the integration-test job on either transient. Retry up to 3x
+	@# with backoff, cleaning control-plane state between attempts (matches the
+	@# retry-after-cleanup form in the local `dapr-init` target).
+	@for attempt in 1 2 3; do \
+		if dapr init --runtime-version $(DAPR_RUNTIME_VERSION); then break; fi; \
+		if [ "$$attempt" -eq 3 ]; then \
+			echo "ERROR: dapr init failed after 3 attempts (Docker Hub pull reset or host-port bind race)"; \
+			exit 1; \
+		fi; \
+		delay=$$((attempt * 5)); \
+		echo "  ! dapr init failed (attempt $$attempt/3); cleaning up, retrying in $${delay}s..."; \
+		dapr uninstall 2>/dev/null || true; \
+		$(DOCKER) rm -f $$($(DOCKER) ps -aq --filter "name=dapr_") 2>/dev/null || true; \
+		sleep "$$delay"; \
+	done
 	@DAPR_HOST=$(HOST) DAPR_GRPC_PORT=$(DAPR_GRPC_PORT) DAPR_HTTP_PORT=$(DAPR_HTTP_PORT) \
 	nohup dapr run \
 		--app-id $(APP_ID) \
