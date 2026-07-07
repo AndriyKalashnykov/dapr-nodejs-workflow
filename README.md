@@ -28,11 +28,24 @@ A Dapr Workflow demo on the [Dapr JS SDK](https://github.com/dapr/js-sdk) (Node.
 
 ```bash
 make deps          # bootstrap mise + install every pinned tool (node, pnpm, act, dapr, gitleaks, hadolint, trivy); check podman + git
+cp .env.example .env   # optional: override any port/host/timeout (see Configuration below)
 make dapr-init     # initialize Dapr (one-time; starts Redis, placement, scheduler)
 make up            # start PostgreSQL + Redis via Podman Compose
 make start         # build and start API server with Dapr sidecar (foreground)
 # -> http://localhost:3000
 ```
+
+### Configuration
+
+Every operator-tunable value (ports, hosts, Dapr app-id, healthcheck timings,
+readiness timeouts) lives in the committed **`.env.example`** — the single source
+of truth. Copy it to `.env` (gitignored) and override as needed; Docker Compose
+auto-loads `.env` and the Makefile mirrors each value as a `?=` default. Nothing
+is hardcoded. To run alongside another Postgres/Redis already on the default
+ports, override them — `make up POSTGRES_PORT=5433 REDIS_PORT=6380 && make start`
+— and `make check-ports` names any container still holding a needed port. DB
+credentials are coupled to the Dapr component YAML (documented in `.env.example`
+for reference; change them there and in the component together).
 
 ## Prerequisites
 
@@ -388,7 +401,7 @@ Run `make help` to see all targets in one list.
 | `make up`             | Start PostgreSQL and Redis via Podman Compose (preflights `check-ports`, waits until both accept connections) |
 | `make down`           | Stop infrastructure services and remove containers                                                            |
 | `make check-ports`    | Fail early (naming the offending container) if a compose port is already bound                                |
-| `make postgres-start` | Start PostgreSQL in Podman                                                                                    |
+| `make postgres-start` | Start only the PostgreSQL Compose service (env-driven; alternative to `make up`)                              |
 | `make postgres-stop`  | Stop PostgreSQL Podman container                                                                              |
 
 ### Run & Verify

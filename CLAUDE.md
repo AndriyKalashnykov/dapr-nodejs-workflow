@@ -73,7 +73,7 @@ Run `make help` for the full list. Key targets grouped by purpose:
 | `make up`             | Start PostgreSQL + Redis via Podman Compose (runs `check-ports` first, waits until both accept connections)   |
 | `make down`           | Stop and remove Podman Compose containers                                                                     |
 | `make check-ports`    | Fail early (naming the offending container) if a compose port (`POSTGRES_PORT`/`REDIS_PORT`) is already bound |
-| `make postgres-start` | Start PostgreSQL in Podman (alternative to `make up`)                                                         |
+| `make postgres-start` | Start only the PostgreSQL Compose service (env-driven; alternative to `make up`)                              |
 | `make postgres-stop`  | Stop PostgreSQL Podman container                                                                              |
 
 ### Run
@@ -154,7 +154,8 @@ docs/
 db/                          Schema and seed data
   baseline_ddl.sql           Table schema (users table)
   baseline_dml.sql           Seed data
-docker-compose.yaml          PostgreSQL + Redis for local development
+.env.example                 Committed source of truth for every operator-tunable value (copy to .env)
+docker-compose.yaml          PostgreSQL + Redis for local development (env-driven: ${POSTGRES_PORT}, healthcheck timings)
 Dockerfile                   Multi-stage production image (distroless, non-root)
 .dockerignore                Excludes non-runtime files from build context
 .hadolint.yaml               Hadolint Dockerfile linter configuration
@@ -254,14 +255,34 @@ A second workflow, `.github/workflows/cleanup-runs.yml`, runs weekly to delete o
 
 ## Key Environment Variables
 
-| Variable         | Default     | Purpose                                                                                                   |
-| ---------------- | ----------- | --------------------------------------------------------------------------------------------------------- |
-| `PORT`           | `3000`      | Express listen port                                                                                       |
-| `HOST`           | `localhost` | Express bind host (also threaded through every Makefile target as `$(HOST)`)                              |
-| `DAPR_HOST`      | `localhost` | Dapr sidecar hostname used by `DaprWorkflowClient` / `WorkflowRuntime` (gRPC)                             |
-| `DAPR_GRPC_PORT` | `50001`     | Dapr sidecar gRPC port used by `DaprWorkflowClient` / `WorkflowRuntime`                                   |
-| `DAPR_HTTP_PORT` | `3500`      | Dapr sidecar HTTP port (read by `fetchPostgresDataActivity` for binding calls)                            |
-| `CI`             | unset       | When set (e.g. by GitHub Actions), `deps` skips podman/dapr checks and `install` uses `--frozen-lockfile` |
+**`.env.example` (repo root, committed) is the single source of truth for every
+operator-tunable value.** Copy it to `.env` (gitignored) and override as needed
+(`cp .env.example .env`); Docker Compose auto-loads `.env`, the Makefile mirrors
+each value as a `?=` default, and the e2e scripts fall back to the same defaults.
+Never hardcode any of these elsewhere. The most-used knobs:
+
+| Variable                         | Default            | Purpose                                                                                                                   |
+| -------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                           | `3000`             | Express listen port                                                                                                       |
+| `HOST`                           | `localhost`        | Express bind host (also threaded through every Makefile target as `$(HOST)`)                                              |
+| `APP_ID`                         | `workflow-api`     | Dapr app-id (also the `make stop` lookup key)                                                                             |
+| `DAPR_HOST`                      | `localhost`        | Dapr sidecar hostname used by `DaprWorkflowClient` / `WorkflowRuntime` (gRPC)                                             |
+| `DAPR_GRPC_PORT`                 | `50001`            | Dapr sidecar gRPC port used by `DaprWorkflowClient` / `WorkflowRuntime`                                                   |
+| `DAPR_HTTP_PORT`                 | `3500`             | Dapr sidecar HTTP port (read by `fetchPostgresDataActivity` for binding calls)                                            |
+| `DAPR_SCHEDULER_PORT`            | `50006`            | Dapr scheduler gRPC port (`dapr init`)                                                                                    |
+| `POSTGRES_PORT`                  | `5432`             | Host-published Postgres port; rendered into the Dapr components (run alongside another Postgres via `POSTGRES_PORT=5433`) |
+| `REDIS_PORT`                     | `6379`             | Host-published Redis port; rendered into the Dapr state component                                                         |
+| `TEST_HOST_PORT`                 | `3100`             | Host port the production image binds for `e2e` / `smoke` / `dast`                                                         |
+| `COMPOSE_HEALTHCHECK_*`          | `10s/5s/5`         | Compose healthcheck `interval` / `timeout` / `retries`                                                                    |
+| `*_READY_TIMEOUT`, `BOOT_POLL_*` | see `.env.example` | Readiness-wait bounds + boot-poll cadence for the Makefile/e2e targets                                                    |
+| `CI`                             | unset              | When set (e.g. by GitHub Actions), `deps` skips podman/dapr checks and `install` uses `--frozen-lockfile`                 |
+
+The DB credentials (`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`) are
+**coupled to the Dapr component YAML** (which has no `{env:VAR}` templating tag),
+so `.env.example` documents them for reference only — changing them requires
+editing the component too. Port collisions are caught early by `make check-ports`
+(compose ports for `up`; app + sidecar ports for `start`/`start-bg`), which names
+the offending container and prints the `*_PORT` override to use.
 
 ## Workflow Rules
 

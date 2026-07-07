@@ -33,6 +33,11 @@ DAPR_SCHEDULER_PORT="${DAPR_SCHEDULER_PORT:-50006}"
 RESOURCES_PATH="${RESOURCES_PATH:-./components}"
 CONTAINER_NAME="${CONTAINER_NAME:-dapr-nodejs-workflow-e2e-dapr}"
 COMPLETION_TIMEOUT="${COMPLETION_TIMEOUT:-60}"
+# Poll cadence for boot/readiness loops (env-overridable; mirrors .env.example).
+# Sidecar/app ports stay ephemeral (pick_port) by design for parallel-run
+# isolation — only the timing knobs are externalized.
+BOOT_POLL_ATTEMPTS="${BOOT_POLL_ATTEMPTS:-30}"
+BOOT_POLL_INTERVAL="${BOOT_POLL_INTERVAL:-1}"
 
 cleanup() {
   local exit_code=$?
@@ -54,13 +59,13 @@ echo "=== [1/6] Starting app image $IMAGE on :$APP_PORT ==="
   -e "DAPR_HTTP_PORT=$DAPR_HTTP_PORT" \
   "$IMAGE" >/dev/null
 
-for i in $(seq 1 30); do
+for i in $(seq 1 "$BOOT_POLL_ATTEMPTS"); do
   if curl -sf "http://$HOST:$APP_PORT/" >/dev/null 2>&1; then
     break
   fi
-  sleep 1
-  if [ "$i" -eq 30 ]; then
-    echo "FAIL: app container did not bind :$APP_PORT within 30s"
+  sleep "$BOOT_POLL_INTERVAL"
+  if [ "$i" -eq "$BOOT_POLL_ATTEMPTS" ]; then
+    echo "FAIL: app container did not bind :$APP_PORT within ${BOOT_POLL_ATTEMPTS}s"
     "$DOCKER" logs "$CONTAINER_NAME"
     exit 1
   fi
@@ -80,13 +85,13 @@ dapr run \
   --log-level warn \
   -- sleep 86400 >/tmp/e2e-dapr.log 2>&1 &
 
-for i in $(seq 1 30); do
+for i in $(seq 1 "$BOOT_POLL_ATTEMPTS"); do
   if curl -sf "http://$HOST:$DAPR_HTTP_PORT/v1.0/healthz" >/dev/null 2>&1; then
     break
   fi
-  sleep 1
-  if [ "$i" -eq 30 ]; then
-    echo "FAIL: Dapr sidecar did not become healthy within 30s"
+  sleep "$BOOT_POLL_INTERVAL"
+  if [ "$i" -eq "$BOOT_POLL_ATTEMPTS" ]; then
+    echo "FAIL: Dapr sidecar did not become healthy within ${BOOT_POLL_ATTEMPTS}s"
     tail -40 /tmp/e2e-dapr.log || true
     exit 1
   fi
@@ -123,7 +128,7 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
       exit 1
       ;;
   esac
-  sleep 2
+  sleep "$BOOT_POLL_INTERVAL"
 done
 
 if [ "$STATUS" != "COMPLETED" ]; then
