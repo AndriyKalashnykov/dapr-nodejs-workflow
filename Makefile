@@ -101,6 +101,13 @@ PLANTUML_VERSION := 1.2026.6
 ZAP_VERSION      := 2.17.0
 # renovate: datasource=npm depName=depcheck
 DEPCHECK_VERSION := 1.4.7
+# Runner image for local `act` runs (ci-run/ci-run-tag). Pins the Ubuntu major so
+# act can't silently jump to a new runner OS. catthehacker rebuilds the floating
+# act-24.04 tag weekly; versioning=regex tracks ONLY the act-<major>.<minor> form
+# (not the dated act-24.04-YYYYMMDD tags), so Renovate bumps it only on a real OS
+# change. The Makefile+docker pinDigests:false rule already exempts it from pinning.
+# renovate: datasource=docker depName=catthehacker/ubuntu versioning=regex:^act-(?<major>\d+)\.(?<minor>\d+)$
+ACT_UBUNTU_VERSION := act-24.04
 # Renovate CLI for the local `renovate` / `renovate-validate` dev targets only.
 # Pinned here (not in .mise.toml) so `mise install` / `make deps` never eagerly
 # fetches its 600+ npm packages; the targets install it lazily via `mise exec`.
@@ -151,6 +158,9 @@ deps:
 	@command -v git >/dev/null 2>&1 || { \
 		echo "ERROR: Git is required. Install from https://git-scm.com/downloads"; exit 1; \
 	}
+	@# Soft checks — convenience/CI targets use these but each has a graceful fallback.
+	@command -v python3 >/dev/null 2>&1 || echo "Note: python3 not found — check-workflow/check-db JSON pretty-printing is skipped (raw output still shown)."
+	@command -v nc >/dev/null 2>&1 || echo "Note: nc not found — ci-dapr-start's sidecar readiness probe falls back to a fixed wait."
 	@echo "All dependencies checked."
 
 #clean: @ Remove build artifacts and node_modules
@@ -632,6 +642,10 @@ image-run: image-stop
 image-stop:
 	@$(DOCKER) rm -f $(IMAGE_NAME) >/dev/null 2>&1 || true
 
+#image-structure-test: @ Assert the built image's structure (non-root user, entrypoint, files) via container-structure-test
+image-structure-test: image-build
+	@container-structure-test test --image $(IMAGE) --config container-structure-test.yaml
+
 #e2e-compose: @ E2E for docker-compose.yaml config: boot the stack, assert Postgres seeded+queryable and Redis round-trips, tear down
 e2e-compose:
 	@$(MAKE) --no-print-directory check-ports
@@ -781,6 +795,7 @@ ci-run-tag: deps
 	@TAG="$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0)"; \
 		echo '{"ref":"refs/tags/'"$$TAG"'"}' > /tmp/act-tag-event.json
 	@act push \
+		-P ubuntu-latest=catthehacker/ubuntu:$(ACT_UBUNTU_VERSION) \
 		--eventpath /tmp/act-tag-event.json \
 		--container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts || true
@@ -860,6 +875,7 @@ ci-run: deps
 	@# 'base' input to be configured or 'repository.default_branch' to be set".
 	@printf '{"ref":"refs/heads/main","repository":{"default_branch":"main","name":"$(APP_NAME)","full_name":"AndriyKalashnykov/$(APP_NAME)"}}' > /tmp/act-push-event.json
 	@act push \
+		-P ubuntu-latest=catthehacker/ubuntu:$(ACT_UBUNTU_VERSION) \
 		--eventpath /tmp/act-push-event.json \
 		--container-architecture linux/amd64 \
 		--artifact-server-path /tmp/act-artifacts
@@ -890,7 +906,7 @@ renovate-validate: deps
 	test test-watch integration-test smoke check update upgrade \
 	check-ports up down postgres-start postgres-stop dapr-init start start-bg stop start-no-dapr run \
 	check-workflow check-db check-version release tag-release \
-	image-build image-run image-stop e2e-compose e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
+	image-build image-run image-stop image-structure-test e2e-compose e2e e2e-dapr e2e-durability dast docker-smoke-test dast-scan docker-verify-manifest \
 	components-check diagrams diagrams-clean diagrams-check check-node-alignment mermaid-lint \
 	render-components render-ci-components render-check \
 	ci-seed-db ci-dapr-start ci ci-run ci-run-tag renovate renovate-validate

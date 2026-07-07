@@ -38,11 +38,11 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Setup & Dependencies
 
-| Target           | Description                                                                                                                                                                            |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make deps`      | Bootstrap mise (once) and install every pinned tool (node from `.nvmrc`; pnpm, act, dapr, gitleaks, hadolint, trivy from `.mise.toml`); check podman + git (CI skips the podman check) |
-| `make install`   | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                                                                                                     |
-| `make dapr-init` | Initialize Dapr in local environment (stops conflicting Redis if needed)                                                                                                               |
+| Target           | Description                                                                                                                                                                                                      |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make deps`      | Bootstrap mise (once) and install every pinned tool (node from `.nvmrc`; pnpm, act, dapr, gitleaks, hadolint, trivy, container-structure-test from `.mise.toml`); check podman + git (CI skips the podman check) |
+| `make install`   | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                                                                                                                               |
+| `make dapr-init` | Initialize Dapr in local environment (stops conflicting Redis if needed)                                                                                                                                         |
 
 ### Build & Quality
 
@@ -120,11 +120,12 @@ The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, and `docker
 
 ### Docker & Image
 
-| Target             | Description                                                |
-| ------------------ | ---------------------------------------------------------- |
-| `make image-build` | Build the production Docker image (multi-stage distroless) |
-| `make image-run`   | Run the built image standalone (no Dapr)                   |
-| `make image-stop`  | Stop the running image container                           |
+| Target                      | Description                                                                                                                                                                |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make image-build`          | Build the production Docker image (multi-stage distroless)                                                                                                                 |
+| `make image-run`            | Run the built image standalone (no Dapr)                                                                                                                                   |
+| `make image-stop`           | Stop the running image container                                                                                                                                           |
+| `make image-structure-test` | Assert the built image's structure (non-root uid, entrypoint/cmd, exposed port, compiled output present, no npm) via `container-structure-test` (runs in the `e2e` CI job) |
 
 ## Architecture
 
@@ -161,7 +162,8 @@ docker-compose.yaml          PostgreSQL + Redis for local development (env-drive
 Dockerfile                   Multi-stage production image (distroless, non-root, node-TCP HEALTHCHECK)
 .dockerignore                Excludes non-runtime files from build context
 .hadolint.yaml               Hadolint Dockerfile linter configuration
-.mise.toml                   mise tool pins (node, pnpm, act, dapr, gitleaks, hadolint, trivy); Node major also in .nvmrc
+container-structure-test.yaml Structural assertions on the production image (make image-structure-test)
+.mise.toml                   mise tool pins (node, pnpm, act, dapr, gitleaks, hadolint, trivy, container-structure-test); Node major also in .nvmrc
 .nvmrc                       Node major version; read by mise and actions/setup-node
 pnpm-workspace.yaml          pnpm `overrides` + `allowBuilds` (security pins; v11+ renamed `onlyBuiltDependencies` and ignores the legacy package.json location)
 ```
@@ -195,7 +197,7 @@ sequenceDiagram
   A-->>U: 200 { status, output }
 ```
 
-Architecture diagrams live in `README.md` under `## Architecture`. The C4 **Context** and **Container** views are [C4-PlantUML](https://github.com/plantuml-stdlib/C4-PlantUML) sources in `docs/diagrams/*.puml`, rendered to committed PNGs by `make diagrams` and guarded against drift by `make diagrams-check` (in `static-check`). The **Workflow Sequence** and **Durability** diagrams are inline Mermaid that GitHub renders directly (validated by `make mermaid-lint`). `PLANTUML_VERSION` in the `Makefile` is intentionally not Renovate-tracked — see the Upgrade Backlog.
+Architecture diagrams live in `README.md` under `## Architecture`. The C4 **Context** and **Container** views are [C4-PlantUML](https://github.com/plantuml-stdlib/C4-PlantUML) sources in `docs/diagrams/*.puml`, rendered to committed PNGs by `make diagrams` and guarded against drift by `make diagrams-check` (in `static-check`). The **Workflow Sequence** and **Durability** diagrams are inline Mermaid that GitHub renders directly (validated by `make mermaid-lint`). **`PLANTUML_VERSION` in the `Makefile` is intentionally NOT Renovate-tracked**: the committed C4 PNGs are a generated artifact guarded by `make diagrams-check`, and the hosted Renovate app can't run `make diagrams` to regenerate them — so a tracked bump PR would sit permanently RED on the drift gate under this repo's automerge. To bump PlantUML: edit the `plantuml/plantuml` tag, run `make diagrams`, and commit the source + regenerated PNGs together. (Re-evaluate if a regen-and-commit-back CI workflow with an App/PAT token is ever added — a Ruleset-gated repo needs a non-`GITHUB_TOKEN` push for the commit-back.)
 
 ### Dapr Sidecar Pattern
 
@@ -241,7 +243,7 @@ The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, an
 - **build**: `make build` + `make smoke` (HTTP smoke test against the built server, no Dapr)
 - **test**: `make test` (Vitest unit tests — activity unit tests, supertest-based HTTP tests, `checkPort` helper)
 - **e2e-compose**: `make e2e-compose` — boots the `docker-compose.yaml` stack (PostgreSQL + Redis), waits for both to accept connections, asserts the seeded `users` table is queryable and Redis round-trips, then tears down. Exercises the Compose config itself (the service-container-based `integration-test`/`e2e-dapr` jobs don't). Skipped under act (`vars.ACT=true`).
-- **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling (shallow e2e; no Dapr sidecar)
+- **e2e**: `make image-structure-test` (container-structure-test: non-root uid, entrypoint/cmd, exposed port, files) + `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling (shallow e2e; no Dapr sidecar)
 - **e2e-dapr**: `make ci-seed-db` + builds the image + `./e2e/e2e-dapr.sh` (PostgreSQL service container, Dapr CLI, production image running alongside `dapr run` sidecar). Verifies a real workflow COMPLETES end-to-end with `processed:true` + `dbData` from the Postgres binding. Skipped under act (`vars.ACT=true`).
 - **e2e-durability**: `make dapr-init` + `make ci-seed-db` + builds the image + `./e2e/e2e-durability.sh` (production image running alongside a real Dapr sidecar). Kills the app mid-flight and asserts the workflow still COMPLETES from Redis-persisted state (durability/replay). Needs `[changes, build, test]`; skipped under act (`vars.ACT=true`).
 - **integration-test**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make integration-test` (PostgreSQL service container, Dapr CLI pinned in `.mise.toml`, full-stack Vitest integration tests; covers 404, 400, COMPLETED happy path with `delayMs:0`). Skipped under act (`vars.ACT=true`) because service containers aren't supported.
@@ -318,7 +320,6 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 ### Known architectural gaps (monitor upstream)
 
 - [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed. **Verified 2026-06-30: `@dapr/dapr` still bundles Express 4 internally, so the `path-to-regexp` override remains required. Re-verify on each `@dapr/dapr` bump — no drift gate covers this prose, so exact version literals are deliberately omitted here.**
-- [ ] **`PLANTUML_VERSION` (Makefile) is manually bumped, not Renovate-tracked.** The committed C4 PNGs are a generated artifact guarded by `make diagrams-check`; the hosted Renovate app can't run `make diagrams` to regenerate them, so a tracked bump PR would sit permanently RED on the drift gate under this repo's automerge. To bump: edit the `plantuml/plantuml` tag, run `make diagrams`, and commit the source + regenerated PNGs together. (Re-evaluate if a regen-and-commit-back CI workflow with an App/PAT token is ever added — a Ruleset-gated repo needs a non-`GITHUB_TOKEN` push for the commit-back.)
 
 ### Renovate automerge posture (do NOT "fix" `platformAutomerge: false` back to `true`)
 

@@ -1,0 +1,30 @@
+# Structural assertions on the production image (distroless, non-root).
+# Run via `make image-structure-test`; container-structure-test is mise-pinned
+# (aqua:GoogleContainerTools/container-structure-test in .mise.toml).
+# Complements the runtime HEALTHCHECK + Trivy image scan + boot-marker smoke by
+# locking the image's SHAPE (non-root uid, entrypoint/cmd, exposed port, that the
+# compiled output + prod deps are present and no package manager leaked in).
+schemaVersion: "2.0.0"
+
+metadataTest:
+  user: "65532:65532"
+  workdir: "/app"
+  entrypoint: ["/nodejs/bin/node"]
+  cmd: ["dist/api-server.js"]
+  exposedPorts: ["3000"]
+  envVars:
+    - key: NODE_ENV
+      value: production
+    - key: PORT
+      value: "3000"
+
+fileExistenceTests:
+  - name: compiled entrypoint present
+    path: /app/dist/api-server.js
+    shouldExist: true
+  - name: production dependencies present
+    path: /app/node_modules
+    shouldExist: true
+  - name: no npm in the runtime image (distroless has no package manager)
+    path: /usr/local/bin/npm
+    shouldExist: false

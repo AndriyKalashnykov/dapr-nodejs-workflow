@@ -20,6 +20,9 @@ dapr = "1.18.0"
 gitleaks = "8.30.1"
 hadolint = "2.14.0"
 trivy = "0.72.0"
+# container-structure-test: asserts the built image's structure (make image-structure-test).
+# aqua backend → github-tags datasource; the mise "mise tools" group's 3-day buffer applies.
+"aqua:GoogleContainerTools/container-structure-test" = "1.22.1"
 
 # Renovate's CLI is NOT pinned here on purpose. It is a heavyweight npm tool
 # (600+ packages) needed only by the rarely-run `make renovate` /
