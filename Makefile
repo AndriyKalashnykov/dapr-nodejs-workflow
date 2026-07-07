@@ -432,20 +432,29 @@ dapr-init: deps
 		echo "Stopping container on port $(REDIS_PORT) to free it for dapr init..."; \
 		podman stop $$(podman ps -q --filter "publish=$(REDIS_PORT)"); \
 	fi
-	@# `dapr init` binds FIXED host ports (placement metrics :59090, scheduler
-	@# :50006/:59091, redis :6379, zipkin :9411). On CI runners those occasionally
-	@# fail with "failed to bind host port for 0.0.0.0:59090: address already in
-	@# use" — either a dapr_* container leaked by a racing run, or a transient
-	@# Docker port-allocation hiccup. In CI, retry once after a clean uninstall +
-	@# stale-container sweep; locally, run a plain init so a dev's Dapr is intact.
+	@# `dapr init` docker-pulls daprio/dapr + redis + zipkin from Docker Hub and
+	@# binds FIXED host ports (placement metrics :59090, scheduler :50006/:59091,
+	@# redis :6379, zipkin :9411). On CI runners it occasionally fails — an
+	@# anonymous Docker Hub pull reset, OR "failed to bind host port for
+	@# 0.0.0.0:50006: address already in use" from a dapr_* container leaked by a
+	@# prior attempt whose port hadn't released yet. A single retry with a short
+	@# sleep is not enough (the port can still be held); use a 3-attempt backoff
+	@# with a growing wait after the uninstall + stale-container sweep so the bind
+	@# port fully releases between attempts. Locally, run a plain init so a dev's
+	@# Dapr is left intact. (Mirrors the ci-dapr-start retry form.)
 	@if [ -n "$$CI" ]; then \
-		dapr init --runtime-version $(DAPR_RUNTIME_VERSION) || { \
-			echo "dapr init failed (host-port bind race?); cleaning up and retrying once..."; \
+		for attempt in 1 2 3; do \
+			if dapr init --runtime-version $(DAPR_RUNTIME_VERSION); then break; fi; \
+			if [ "$$attempt" -eq 3 ]; then \
+				echo "ERROR: dapr init failed after 3 attempts (Docker Hub pull reset or host-port bind race)"; \
+				exit 1; \
+			fi; \
+			delay=$$((attempt * 5)); \
+			echo "  ! dapr init failed (attempt $$attempt/3); cleaning up, retrying in $${delay}s..."; \
 			dapr uninstall 2>/dev/null || true; \
 			docker rm -f $$(docker ps -aq --filter "name=dapr_") 2>/dev/null || true; \
-			sleep 3; \
-			dapr init --runtime-version $(DAPR_RUNTIME_VERSION); \
-		}; \
+			sleep "$$delay"; \
+		done; \
 	else \
 		dapr init --runtime-version $(DAPR_RUNTIME_VERSION); \
 	fi
