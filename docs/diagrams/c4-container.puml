@@ -26,10 +26,10 @@ title Container View — Dapr Node.js Workflow
 Person(user, "API Consumer")
 
 System_Boundary(sys, "Dapr Node.js Workflow") {
-  Container(api, "Express API", "Node.js, TypeScript, Express", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
-  Container(sidecar, "Dapr Sidecar", "daprd", "Workflow engine, component bindings, state store client")
-  ContainerDb(redis, "Redis", "Redis", "Dapr state store — durable workflow state for replay on restart")
-  ContainerDb(postgres, "PostgreSQL", "PostgreSQL", "Queried by fetchPostgresDataActivity via Dapr binding")
+  Container(api, "Express API", "Node.js 24, TypeScript 6, Express 5", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
+  Container(sidecar, "Dapr Sidecar", "daprd 1.18", "Workflow engine, component bindings, state store client")
+  ContainerDb(redis, "Redis", "Redis 8", "Dapr state store — durable workflow state for replay on restart")
+  ContainerDb(postgres, "PostgreSQL", "PostgreSQL 18", "Queried by fetchPostgresDataActivity via Dapr binding")
 }
 
 Rel(user, api, "Schedule / poll workflow", "HTTPS / JSON")

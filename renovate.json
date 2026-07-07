@@ -98,6 +98,17 @@
       "matchFileNames": ["Makefile"],
       "matchDatasources": ["docker"],
       "pinDigests": false
+    },
+    {
+      "description": "ZAP_VERSION is a custom.regex version-only pin in BOTH the Makefile and ci.yml, consumed as ghcr.io/zaproxy/zaproxy:<tag>. Now that it is datasource=docker (tracking the consumed sink), config:best-practices' docker:pinDigests would try to append @sha256 to the bare version literal — which the custom.regex manager cannot write back, producing a persistently-errored 'Pin' PR. Scope by depName so BOTH file locations are exempted while postgres (depName=postgres, real image refs with @sha256) keeps its digest pins.",
+      "matchDepNames": ["ghcr.io/zaproxy/zaproxy"],
+      "pinDigests": false
+    },
+    {
+      "description": "Group the postgres image across the docker-compose manager (docker-compose.yaml) and the custom.regex manager (ci.yml service blocks) into ONE PR so compose and the CI service DB never drift a cycle apart.",
+      "matchDatasources": ["docker"],
+      "matchDepNames": ["postgres"],
+      "groupName": "Postgres image"
     }
   ],
   "customManagers": [

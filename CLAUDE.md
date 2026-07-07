@@ -69,13 +69,13 @@ Run `make help` for the full list. Key targets grouped by purpose:
 
 ### Infrastructure
 
-| Target                | Description                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `make up`             | Start PostgreSQL + Redis via Podman Compose (runs `check-ports` first, waits until both accept connections)   |
-| `make down`           | Stop and remove Podman Compose containers                                                                     |
-| `make check-ports`    | Fail early (naming the offending container) if a compose port (`POSTGRES_PORT`/`REDIS_PORT`) is already bound |
-| `make postgres-start` | Start only the PostgreSQL Compose service (env-driven; alternative to `make up`)                              |
-| `make postgres-stop`  | Stop PostgreSQL Podman container                                                                              |
+| Target                | Description                                                                                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make up`             | Start PostgreSQL + Redis via Podman Compose (runs `check-ports` first, waits until both accept connections)                                                                                     |
+| `make down`           | Stop and remove Podman Compose containers                                                                                                                                                       |
+| `make check-ports`    | Fail early (naming the offending container) if a needed host port is already bound (compose ports for `up`; app + sidecar for `start`/`start-bg`; the image host port for `e2e`/`smoke`/`dast`) |
+| `make postgres-start` | Start only the PostgreSQL Compose service (env-driven; alternative to `make up`)                                                                                                                |
+| `make postgres-stop`  | Stop PostgreSQL Podman container                                                                                                                                                                |
 
 ### Run
 
@@ -160,7 +160,7 @@ docker-compose.yaml          PostgreSQL + Redis for local development (env-drive
 Dockerfile                   Multi-stage production image (distroless, non-root)
 .dockerignore                Excludes non-runtime files from build context
 .hadolint.yaml               Hadolint Dockerfile linter configuration
-.mise.toml                   mise tool pins (pnpm); Node pinned via .nvmrc
+.mise.toml                   mise tool pins (node, pnpm, act, dapr, gitleaks, hadolint, trivy); Node major also in .nvmrc
 .nvmrc                       Node major version; read by mise and actions/setup-node
 pnpm-workspace.yaml          pnpm `overrides` + `allowBuilds` (security pins; v11+ renamed `onlyBuiltDependencies` and ignores the legacy package.json location)
 ```
@@ -241,12 +241,13 @@ The CI pipeline runs on pushes to `main`, version tags (`v*`), pull requests, an
 - **test**: `make test` (Vitest unit tests — activity unit tests, supertest-based HTTP tests, `checkPort` helper)
 - **e2e**: `make e2e` — build Docker image, run container, validate health endpoint and Dapr lazy-init error handling (shallow e2e; no Dapr sidecar)
 - **e2e-dapr**: `make ci-seed-db` + builds the image + `./e2e/e2e-dapr.sh` (PostgreSQL service container, Dapr CLI, production image running alongside `dapr run` sidecar). Verifies a real workflow COMPLETES end-to-end with `processed:true` + `dbData` from the Postgres binding. Skipped under act (`vars.ACT=true`).
-- **integration-test**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make integration-test` (PostgreSQL service container, Dapr CLI 1.17.1, full-stack Vitest integration tests; covers 404, 400, COMPLETED happy path with `delayMs:0`). Skipped under act (`vars.ACT=true`) because service containers aren't supported.
+- **e2e-durability**: `make dapr-init` + `make ci-seed-db` + builds the image + `./e2e/e2e-durability.sh` (production image running alongside a real Dapr sidecar). Kills the app mid-flight and asserts the workflow still COMPLETES from Redis-persisted state (durability/replay). Needs `[changes, build, test]`; skipped under act (`vars.ACT=true`).
+- **integration-test**: `make ci-seed-db` + `make build` + `make ci-dapr-start` + `make integration-test` (PostgreSQL service container, Dapr CLI pinned in `.mise.toml`, full-stack Vitest integration tests; covers 404, 400, COMPLETED happy path with `delayMs:0`). Skipped under act (`vars.ACT=true`) because service containers aren't supported.
 - **dast** (tag pushes only): `make docker-smoke-test` + `make dast-scan` — rebuilds the production image via `cache-from: type=gha` (≈10s cache hit from the `docker` job), starts it, runs OWASP ZAP baseline scan against `localhost:3100`, uploads the ZAP report as an artifact. Gated to tag pushes (`startsWith(github.ref, 'refs/tags/')`) since it scans the released image; also skipped under act (`vars.ACT=true`) because ZAP's docker-in-docker bind mount doesn't round-trip through the host Docker daemon.
 - **docker** (tag pushes only): the entire job is gated to tag pushes (`startsWith(github.ref, 'refs/tags/')`) — the image build, Trivy image CVE scan (CRITICAL/HIGH blocking), boot-marker smoke test, amd64 build, GHCR publish, and cosign signing all run solely on tags. Regular pushes/PRs skip it; per-push functional coverage (and the amd64 image build) comes from `e2e`/`e2e-dapr`. Images are **amd64-only** (arm64 dropped for build speed). On the tag run: Gates 1–3 (amd64 build, Trivy image scan, boot-marker smoke via `make docker-smoke-test`), Gate 4 (amd64 build + push via `docker/build-push-action`), then step-level `if: startsWith(github.ref, 'refs/tags/')` guards (now redundant with the job gate, kept as defense-in-depth) on `Log in to GHCR`, `push`, `Verify image manifest` via `make docker-verify-manifest`, `Install cosign`, and `Sign image with cosign` (Sigstore keyless OIDC signing by digest). Buildkit in-manifest attestations (`provenance`/`sbom`) are explicitly disabled to keep the image clean of `unknown/unknown` platform entries so GHCR's Packages UI renders the "OS / Arch" tab.
 - **ci-pass**: gate job — runs after all upstream jobs and fails if any of them failed; intended as the single status check for branch protection
 
-Job dependencies: `changes` -> `static-check` -> `build` + `test` (parallel) -> `e2e` + `e2e-dapr` + `integration-test` + `dast` + `docker` (all five parallel; `e2e`/`e2e-dapr`/`integration-test`/`dast` need `[changes, build, test]`, `docker` needs `[changes, static-check, build, test]`) -> `ci-pass` (lists every upstream job including `changes` in its `needs:`). `dast` and `docker` additionally gate on `startsWith(github.ref, 'refs/tags/')`, so on non-tag pushes/PRs they are **skipped** — `ci-pass` treats `skipped` as passing (it only fails on `failure`/`cancelled`), so it stays green.
+Job dependencies: `changes` -> `static-check` -> `build` + `test` (parallel) -> `e2e` + `e2e-dapr` + `e2e-durability` + `integration-test` + `dast` + `docker` (all six parallel; `e2e`/`e2e-dapr`/`e2e-durability`/`integration-test`/`dast` need `[changes, build, test]`, `docker` needs `[changes, static-check, build, test]`) -> `ci-pass` (lists every upstream job including `changes` in its `needs:`). `dast` and `docker` additionally gate on `startsWith(github.ref, 'refs/tags/')`, so on non-tag pushes/PRs they are **skipped** — `ci-pass` treats `skipped` as passing (it only fails on `failure`/`cancelled`), so it stays green.
 
 CI uses `--frozen-lockfile` for reproducible builds. The Makefile sets `PNPM_INSTALL := pnpm install $(if $(CI),--frozen-lockfile,)`, so `make install` automatically picks the right mode based on the `CI` environment variable.
 
@@ -283,8 +284,8 @@ The DB credentials (`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`) are
 **coupled to the Dapr component YAML** (which has no `{env:VAR}` templating tag),
 so `.env.example` documents them for reference only — changing them requires
 editing the component too. Port collisions are caught early by `make check-ports`
-(compose ports for `up`; app + sidecar ports for `start`/`start-bg`), which names
-the offending container and prints the `*_PORT` override to use.
+(compose ports for `up`; app + sidecar ports for `start`/`start-bg`; the image
+host port for `e2e`/`smoke`/`dast`), which names the offending container and prints the `*_PORT` override to use.
 
 ## Workflow Rules
 
@@ -314,8 +315,7 @@ After any code or configuration change, review and update `README.md`, `CLAUDE.m
 
 ### Known architectural gaps (monitor upstream)
 
-- [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed. **Verified 2026-06-30 on `@dapr/dapr` 3.18.0: still bundles `express@4.22.2` (override resolves `path-to-regexp@8.4.2` for both that and our direct `express@5`), so the override remains required.**
-- [x] Ubuntu runner pinning — **N/A: all `runs-on:` use `ubuntu-latest` (verified 2026-06-30, zero hardcoded `ubuntu-24.04`/`ubuntu-22.04` pins), so the GitHub-managed 24.04→26.04 migration is automatic; nothing to bump. Pin a specific image here only if build reproducibility ever requires it.**
+- [ ] `@dapr/dapr` bundles Express 4 internally — `path-to-regexp` vuln patched via pnpm override (`pnpm-workspace.yaml`); monitor upstream Dapr JS SDK for express 5 migration so the override can be removed. **Verified 2026-06-30: `@dapr/dapr` still bundles Express 4 internally, so the `path-to-regexp` override remains required. Re-verify on each `@dapr/dapr` bump — no drift gate covers this prose, so exact version literals are deliberately omitted here.**
 - [ ] **`PLANTUML_VERSION` (Makefile) is manually bumped, not Renovate-tracked.** The committed C4 PNGs are a generated artifact guarded by `make diagrams-check`; the hosted Renovate app can't run `make diagrams` to regenerate them, so a tracked bump PR would sit permanently RED on the drift gate under this repo's automerge. To bump: edit the `plantuml/plantuml` tag, run `make diagrams`, and commit the source + regenerated PNGs together. (Re-evaluate if a regen-and-commit-back CI workflow with an App/PAT token is ever added — a Ruleset-gated repo needs a non-`GITHUB_TOKEN` push for the commit-back.)
 
 ### Renovate automerge posture (do NOT "fix" `platformAutomerge: false` back to `true`)
