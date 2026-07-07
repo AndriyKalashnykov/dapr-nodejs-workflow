@@ -257,8 +257,9 @@ A second workflow, `.github/workflows/cleanup-runs.yml`, runs weekly to delete o
 
 **`.env.example` (repo root, committed) is the single source of truth for every
 operator-tunable value.** Copy it to `.env` (gitignored) and override as needed
-(`cp .env.example .env`); Docker Compose auto-loads `.env`, the Makefile mirrors
-each value as a `?=` default, and the e2e scripts fall back to the same defaults.
+(`cp .env.example .env`); Docker Compose auto-loads `.env`, the Makefile
+`-include`s it (its `?=` values are the fallback when `.env` is absent), and the
+e2e scripts fall back to the same defaults.
 Never hardcode any of these elsewhere. The most-used knobs:
 
 | Variable                         | Default            | Purpose                                                                                                                   |

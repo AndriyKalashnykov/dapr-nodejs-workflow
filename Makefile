@@ -14,6 +14,13 @@ export PATH := $(HOME)/.local/share/mise/shims:$(HOME)/.local/bin:$(PATH)
 APP_NAME       := dapr-nodejs-workflow
 CURRENTTAG     := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 
+# Load operator overrides from .env (gitignored) BEFORE the `?=` defaults below,
+# so `.env` is authoritative for `make` targets too — not just for compose (which
+# auto-loads it). A value set in .env wins; with no .env the `?=` defaults apply.
+# Keep .env to simple `KEY=value` lines (copy from .env.example) — no quotes,
+# no spaces around `=`, and escape any literal `$` as `$$` (Make expands `$`).
+-include .env
+
 # --- Network / hosts ---
 # All recipes route through $(HOST); override for non-local targets.
 HOST                ?= localhost

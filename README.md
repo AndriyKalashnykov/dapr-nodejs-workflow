@@ -40,7 +40,8 @@ make start         # build and start API server with Dapr sidecar (foreground)
 Every operator-tunable value (ports, hosts, Dapr app-id, healthcheck timings,
 readiness timeouts) lives in the committed **`.env.example`** — the single source
 of truth. Copy it to `.env` (gitignored) and override as needed; Docker Compose
-auto-loads `.env` and the Makefile mirrors each value as a `?=` default. Nothing
+auto-loads `.env` and the Makefile `-include`s it (its `?=` values are the
+fallback when `.env` is absent). Nothing
 is hardcoded. To run alongside another Postgres/Redis already on the default
 ports, override them — `make up POSTGRES_PORT=5433 REDIS_PORT=6380 && make start`
 — and `make check-ports` names any container still holding a needed port. DB
