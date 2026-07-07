@@ -213,6 +213,22 @@ jobs:
       - name: Test
         run: make integration-test
 
+  e2e-compose:
+    needs: [changes, build, test]
+    # Compose-based (docker-in-docker) — skipped under act like the other DinD jobs.
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' }}
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Compose config e2e
+        run: make e2e-compose
+
   e2e:
     needs: [changes, build, test]
     if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
@@ -564,6 +580,7 @@ jobs:
         static-check,
         build,
         test,
+        e2e-compose,
         e2e,
         e2e-dapr,
         e2e-durability,

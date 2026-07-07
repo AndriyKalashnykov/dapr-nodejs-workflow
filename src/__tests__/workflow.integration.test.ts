@@ -163,6 +163,24 @@ describe("workflow end-to-end completion", () => {
   // `req.body.query`. Activity-level coverage of the error-envelope shape lives
   // in src/__tests__/activities.test.ts (5xx and connection-refused branches).
 
+  it("honors a custom resultKey — DB result lands under it, not under dbData", async () => {
+    const { id } = await scheduleWorkflow({
+      delayMs: 0,
+      resultKey: "customResult",
+      payload: { name: "result-key-override" },
+    });
+
+    const status = await pollUntilCompleted(id, 30_000);
+    expect(status.status).toBe("COMPLETED");
+
+    const output = JSON.parse(status.output ?? "{}") as Record<string, unknown>;
+    expect(output.processed).toBe(true);
+    // The Postgres binding result is renamed to the requested key…
+    expect(output.customResult).toBeDefined();
+    // …and the default key is therefore absent.
+    expect(output.dbData).toBeUndefined();
+  }, 35_000);
+
   it("handles 5 workflows scheduled concurrently — each reaches COMPLETED with distinct ids", async () => {
     const N = 5;
     const scheduled = await Promise.all(
