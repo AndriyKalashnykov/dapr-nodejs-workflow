@@ -92,8 +92,15 @@ MERMAID_CLI_VERSION := 11.16.0
 # would sit permanently RED on the drift gate. Bump manually (see CLAUDE.md
 # "Upgrade Backlog"): edit the tag, run `make diagrams`, commit source + PNGs.
 PLANTUML_VERSION := 1.2026.6
-# renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
+# ZAP is consumed ONLY as the container image ghcr.io/zaproxy/zaproxy:$(ZAP_VERSION)
+# (dast targets), never as a binary — so track the CONSUMED SINK (the ghcr tag)
+# via datasource=docker, not github-releases. github-releases can lead the
+# registry (release cut before the :2.x.0 image is pushed), opening a bump PR
+# whose image 404s. ghcr tags are bare (2.17.0), so no extractVersion is needed.
+# renovate: datasource=docker depName=ghcr.io/zaproxy/zaproxy
 ZAP_VERSION      := 2.17.0
+# renovate: datasource=npm depName=depcheck
+DEPCHECK_VERSION := 1.4.7
 # Renovate CLI for the local `renovate` / `renovate-validate` dev targets only.
 # Pinned here (not in .mise.toml) so `mise install` / `make deps` never eagerly
 # fetches its 600+ npm packages; the targets install it lazily via `mise exec`.
@@ -188,11 +195,11 @@ trivy-fs: deps
 #deps-prune: @ Show unused/redundant Node.js dependencies
 deps-prune: install
 	@echo "Checking for unused Node.js packages..."
-	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" || true
+	@npx --yes depcheck@$(DEPCHECK_VERSION) --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" || true
 
 #deps-prune-check: @ Verify no prunable dependencies (CI gate)
 deps-prune-check: install
-	@npx --yes depcheck --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" --quiet \
+	@npx --yes depcheck@$(DEPCHECK_VERSION) --ignores="@types/*,eslint,prettier,typescript,vitest,vite,@eslint/js,typescript-eslint" --quiet \
 		|| { echo "ERROR: unused dependencies found. Run 'make deps-prune' to see them."; exit 1; }
 
 # --- Architecture diagrams (PlantUML C4) ---
@@ -310,7 +317,7 @@ check-node-alignment:
 	if [ "$$fail" -eq 0 ]; then echo "check-node-alignment: Node major $$ref aligned across .nvmrc, .mise.toml, Dockerfile."; fi; \
 	exit $$fail
 
-#static-check: @ Composite quality gate (check-node-alignment + lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + diagrams-check + mermaid-lint)
+#static-check: @ Composite quality gate (check-node-alignment + lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + render-check + diagrams-check + mermaid-lint)
 static-check: check-node-alignment lint vulncheck secrets trivy-fs deps-prune-check components-check render-check diagrams-check mermaid-lint
 	@echo "Static check passed."
 
@@ -339,6 +346,7 @@ integration-test: install
 
 #smoke: @ HTTP smoke test against built server (no Dapr)
 smoke: build
+	@$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(PORT)"
 	@trap 'kill $$SERVER_PID 2>/dev/null || true' EXIT; \
 	node dist/api-server.js & SERVER_PID=$$!; \
 	echo "Waiting for server on $(HOST):$(PORT)..."; \
@@ -626,6 +634,7 @@ image-stop:
 
 #e2e: @ End-to-end test of the production Docker image
 e2e: image-build
+	@$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(TEST_HOST_PORT)"
 	@SVC=$(IMAGE_NAME)-e2e; \
 	trap "$(DOCKER) rm -f $$SVC >/dev/null 2>&1 || true" EXIT; \
 	echo "Starting container $$SVC on $(HOST):$(TEST_HOST_PORT)..."; \
@@ -729,6 +738,7 @@ docker-verify-manifest:
 #dast: @ ZAP baseline DAST scan against the built image
 dast: image-build
 	@$(DOCKER) rm -f $(IMAGE_NAME)-dast 2>/dev/null || true
+	@$(MAKE) --no-print-directory check-ports CHECK_PORTS="$(TEST_HOST_PORT)"
 	@$(DOCKER) run -d --name $(IMAGE_NAME)-dast -p $(TEST_HOST_PORT):3000 $(IMAGE) >/dev/null
 	@echo "Waiting for container to become healthy..."
 	@for i in $$(seq 1 $(BOOT_POLL_ATTEMPTS)); do \
@@ -861,7 +871,12 @@ renovate: deps
 
 #renovate-validate: @ Validate Renovate configuration
 renovate-validate: deps
-	@mise exec npm:renovate@$(RENOVATE_VERSION) -- renovate --platform=local
+	@# Export GITHUB_COM_TOKEN (env-rename, not argv — same safe form as `renovate`)
+	@# if a token is present, so github-tags/aqua (mise tools) and action-SHA
+	@# lookups resolve instead of being silently skipped as github-token-required.
+	@# Schema validation runs regardless; the token only deepens dry-run coverage.
+	@if [ -n "$$GITHUB_TOKEN" ]; then export GITHUB_COM_TOKEN="$$GITHUB_TOKEN"; fi; \
+		mise exec npm:renovate@$(RENOVATE_VERSION) -- renovate --platform=local
 
 .PHONY: help deps clean install build format format-check \
 	lint vulncheck secrets trivy-fs deps-prune deps-prune-check static-check \

@@ -19,6 +19,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       actions: write # gh run delete
+      pull-requests: read # gh pr list — exclude open-PR runs from deletion
     env:
       GH_TOKEN: ${{ github.token }}
       RETAIN_DAYS: 7
@@ -27,10 +28,25 @@ jobs:
       - name: Delete old workflow runs
         run: |
           CUTOFF=$(date -u -d "${RETAIN_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)
+          # Open-PR head SHAs — their CI run reports the required `ci-pass` check;
+          # deleting it strands the PR as BLOCKED with 0 checks reported.
+          OPEN_SHAS=$(gh pr list --repo "${{ github.repository }}" --state open \
+            --json headRefOid --jq '[.[].headRefOid]')
+          # Retain KEEP_MINIMUM newest runs PER WORKFLOW (group_by), not globally —
+          # a global minimum lets frequent workflows starve a low-frequency one
+          # (e.g. weekly ci.yml) past the cutoff, deleting every run of it and
+          # deregistering it from required-check resolution.
           gh run list --repo "${{ github.repository }}" \
-            --json databaseId,createdAt --limit 200 \
+            --json databaseId,createdAt,workflowName,headSha --limit 200 \
           | jq -r --arg cutoff "$CUTOFF" --argjson keep "$KEEP_MINIMUM" \
-            'sort_by(.createdAt) | reverse | .[$keep:] | .[] | select(.createdAt < $cutoff) | .databaseId' \
+              --argjson open "$OPEN_SHAS" '
+              group_by(.workflowName)
+              | map(sort_by(.createdAt) | reverse | .[$keep:])
+              | add // []
+              | .[]
+              | select(.createdAt < $cutoff)
+              | select(.headSha as $s | ($open | index($s)) | not)
+              | .databaseId' \
           | xargs -r -I{} gh run delete {} --repo "${{ github.repository }}"
 
   cleanup-caches:

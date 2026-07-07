@@ -336,7 +336,7 @@ make dapr-init          # one-time: initialize Dapr (placement + scheduler + Red
 make integration-test   # provisions infra + backgrounded sidecar, then runs the tests
 ```
 
-The backgrounded stack is left running afterward; `make stop` + `make down` to clean up. (In CI the job provisions its own PostgreSQL service container and sidecar, so `integration-test` there just runs the suite.)
+The backgrounded stack is left running afterward; `make stop` + `make down` to clean up. (In CI the job provisions its own PostgreSQL service container and sidecar, so `integration-test` there runs only the suite.)
 
 #### End-to-end Tests
 
@@ -366,24 +366,25 @@ Run `make help` to see all targets in one list.
 
 ### Build & Quality
 
-| Target                      | Description                                                                                                                                                 |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make build`                | Build TypeScript to `dist/`                                                                                                                                 |
-| `make format`               | Auto-fix formatting with Prettier                                                                                                                           |
-| `make format-check`         | Check formatting without modifying files                                                                                                                    |
-| `make lint`                 | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                                                                                                 |
-| `make vulncheck`            | Audit dependencies for known vulnerabilities                                                                                                                |
-| `make secrets`              | Scan for hardcoded secrets with gitleaks                                                                                                                    |
-| `make trivy-fs`             | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                                         |
-| `make deps-prune`           | Show unused/redundant Node.js dependencies                                                                                                                  |
-| `make deps-prune-check`     | Verify no prunable dependencies (CI gate)                                                                                                                   |
-| `make components-check`     | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                                               |
-| `make mermaid-lint`         | Validate Mermaid diagrams in `README.md` + `CLAUDE.md` via pinned `minlag/mermaid-cli`                                                                      |
-| `make diagrams`             | Render the C4 PlantUML sources (`docs/diagrams/*.puml`) to committed PNGs via pinned `plantuml/plantuml`                                                    |
-| `make diagrams-clean`       | Remove rendered diagram artefacts (`docs/diagrams/out/`)                                                                                                    |
-| `make diagrams-check`       | Drift gate: re-render the C4 diagrams and fail if the committed PNGs differ from current `.puml` source                                                     |
-| `make check-node-alignment` | Drift gate: fails if the Node major disagrees across `.nvmrc`, `.mise.toml`, and the `Dockerfile`                                                           |
-| `make static-check`         | Composite quality gate (check-node-alignment + lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + diagrams-check + mermaid-lint) |
+| Target                      | Description                                                                                                                                                                       |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make build`                | Build TypeScript to `dist/`                                                                                                                                                       |
+| `make format`               | Auto-fix formatting with Prettier                                                                                                                                                 |
+| `make format-check`         | Check formatting without modifying files                                                                                                                                          |
+| `make lint`                 | Run Prettier check, ESLint, TypeScript noEmit, and hadolint                                                                                                                       |
+| `make vulncheck`            | Audit dependencies for known vulnerabilities                                                                                                                                      |
+| `make secrets`              | Scan for hardcoded secrets with gitleaks                                                                                                                                          |
+| `make trivy-fs`             | Scan filesystem for vulnerabilities, secrets, and misconfigurations                                                                                                               |
+| `make deps-prune`           | Show unused/redundant Node.js dependencies                                                                                                                                        |
+| `make deps-prune-check`     | Verify no prunable dependencies (CI gate)                                                                                                                                         |
+| `make components-check`     | Drift gate: fails if `components/*.yaml` and `dapr/ci/*.yaml` differ beyond password/comments                                                                                     |
+| `make render-check`         | Gate: asserts `render-components` substitutes an overridden `POSTGRES_PORT`/`REDIS_PORT` into the rendered Dapr components (so the DB-port override provably reaches the sidecar) |
+| `make mermaid-lint`         | Validate Mermaid diagrams in `README.md` + `CLAUDE.md` via pinned `minlag/mermaid-cli`                                                                                            |
+| `make diagrams`             | Render the C4 PlantUML sources (`docs/diagrams/*.puml`) to committed PNGs via pinned `plantuml/plantuml`                                                                          |
+| `make diagrams-clean`       | Remove rendered diagram artefacts (`docs/diagrams/out/`)                                                                                                                          |
+| `make diagrams-check`       | Drift gate: re-render the C4 diagrams and fail if the committed PNGs differ from current `.puml` source                                                                           |
+| `make check-node-alignment` | Drift gate: fails if the Node major disagrees across `.nvmrc`, `.mise.toml`, and the `Dockerfile`                                                                                 |
+| `make static-check`         | Composite quality gate (check-node-alignment + lint + vulncheck + secrets + trivy-fs + deps-prune-check + components-check + render-check + diagrams-check + mermaid-lint)        |
 
 ### Test
 
@@ -396,14 +397,14 @@ Run `make help` to see all targets in one list.
 
 ### Infrastructure
 
-| Target                | Description                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `make dapr-init`      | Initialize Dapr in local environment (stops conflicting Redis if needed)                                      |
-| `make up`             | Start PostgreSQL and Redis via Podman Compose (preflights `check-ports`, waits until both accept connections) |
-| `make down`           | Stop infrastructure services and remove containers                                                            |
-| `make check-ports`    | Fail early (naming the offending container) if a compose port is already bound                                |
-| `make postgres-start` | Start only the PostgreSQL Compose service (env-driven; alternative to `make up`)                              |
-| `make postgres-stop`  | Stop PostgreSQL Podman container                                                                              |
+| Target                | Description                                                                                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `make dapr-init`      | Initialize Dapr in local environment (stops conflicting Redis if needed)                                                                                                                        |
+| `make up`             | Start PostgreSQL and Redis via Podman Compose (preflights `check-ports`, waits until both accept connections)                                                                                   |
+| `make down`           | Stop infrastructure services and remove containers                                                                                                                                              |
+| `make check-ports`    | Fail early (naming the offending container) if a needed host port is already bound — compose ports for `up`, app + sidecar for `start`/`start-bg`, the image host port for `e2e`/`smoke`/`dast` |
+| `make postgres-start` | Start only the PostgreSQL Compose service (env-driven; alternative to `make up`)                                                                                                                |
+| `make postgres-stop`  | Stop PostgreSQL Podman container                                                                                                                                                                |
 
 ### Run & Verify
 
@@ -427,7 +428,7 @@ Run `make help` to see all targets in one list.
 | `make ci-run-tag`             | Run GitHub Actions workflow locally with a tag event (exercises docker job)                                 |
 | `make release VERSION=vX.Y.Z` | Validate VERSION format, then run `tag-release` to commit, tag, and push                                    |
 
-> The `ci-seed-db`, `ci-dapr-start`, `docker-smoke-test`, `dast-scan`, `docker-verify-manifest`, `check-version`, and `tag-release` targets are internal helpers — `tag-release` and `check-version` are invoked transitively via `make release`; the `ci-*` and `docker-*` targets are called exclusively from CI (service-container provisioning, pre-push image gating, and image manifest verification). They are not intended for direct local use — use `make up` + `make start` locally and `make release VERSION=vX.Y.Z` for tagging.
+> The `ci-seed-db`, `ci-dapr-start`, `render-components`, `render-ci-components`, `docker-smoke-test`, `dast-scan`, `docker-verify-manifest`, `check-version`, and `tag-release` targets are internal/auto-invoked helpers — `render-components` is invoked transitively via `make start`/`start-bg`, and `tag-release`/`check-version` via `make release`; the `ci-*`, `render-ci-components`, and `docker-*` targets are called exclusively from CI (service-container provisioning, component rendering, pre-push image gating, and image manifest verification). They are not intended for direct local use — use `make up` + `make start` locally and `make release VERSION=vX.Y.Z` for tagging.
 
 ### Docker & Image
 
@@ -457,7 +458,7 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 | Job                  | Depends on                         | Steps                                                                                                                                                                                                                                                                                                                                                     |
 | -------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **changes**          | —                                  | `dorny/paths-filter` detector — emits `code=true` for code changes, `code=false` for doc-only (`*.md`, `docs/**`, image assets; `CLAUDE.md` is re-included as project config). All heavy jobs gate on this output, so doc-only PRs skip them and `ci-pass` reports green via skipped-jobs. Replaces trigger-level `paths-ignore` (Rulesets-incompatible). |
-| **static-check**     | changes                            | `make static-check` (check-node-alignment, Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check, diagrams-check, mermaid-lint)                                                                                                                                                             |
+| **static-check**     | changes                            | `make static-check` (check-node-alignment, Prettier check, ESLint, `tsc --noEmit`, hadolint, `pnpm audit`, gitleaks, Trivy fs scan, depcheck, components-check, render-check, diagrams-check, mermaid-lint)                                                                                                                                               |
 | **build**            | changes, static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                                                                                                                                                                                                    |
 | **test**             | changes, static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                                                                                                                                                                                             |
 | **e2e**              | changes, build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                                                                                                                                                                                           |
@@ -503,9 +504,9 @@ The `cleanup-runs.yml` workflow runs weekly to delete old workflow runs and stal
 
 ### Required Secrets and Variables
 
-| Name  | Type     | Used by                                     | How to set                                                                                                                                                                                                                                                                            |
-| ----- | -------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ACT` | Variable | `integration-test`, `e2e-dapr`, `dast` jobs | Set to `true` under [nektos/act](https://github.com/nektos/act) to skip jobs that need service containers or docker-in-docker bind mounts (`integration-test`, `e2e-dapr`, `dast`). Set via **Settings > Secrets and variables > Actions > Variables tab > New repository variable**. |
+| Name  | Type     | Used by                                                       | How to set                                                                                                                                                                                                                                                                                              |
+| ----- | -------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ACT` | Variable | `integration-test`, `e2e-dapr`, `e2e-durability`, `dast` jobs | Set to `true` under [nektos/act](https://github.com/nektos/act) to skip jobs that need service containers or docker-in-docker bind mounts (`integration-test`, `e2e-dapr`, `e2e-durability`, `dast`). Set via **Settings > Secrets and variables > Actions > Variables tab > New repository variable**. |
 
 `GITHUB_TOKEN` is provisioned automatically by GitHub Actions; no manual setup is needed.
 

@@ -23,7 +23,9 @@ env:
   # vars here.
   # ZAP version is kept here because it's a Docker image tag (no mise backend);
   # this single value drives the cache key, pull, and save steps in the dast job.
-  # renovate: datasource=github-releases depName=zaproxy/zaproxy extractVersion=^v(?<version>.*)$
+  # ZAP is consumed only as the ghcr.io/zaproxy/zaproxy image (dast job pulls it),
+  # so track the consumed sink via datasource=docker (ghcr tags are bare, no extractVersion).
+  # renovate: datasource=docker depName=ghcr.io/zaproxy/zaproxy
   ZAP_VERSION: 2.17.0
 
 jobs:
