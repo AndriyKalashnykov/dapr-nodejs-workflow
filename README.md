@@ -27,7 +27,7 @@ A Dapr Workflow demo on the [Dapr JS SDK](https://github.com/dapr/js-sdk) (Node.
 ## Quick Start
 
 ```bash
-make deps          # bootstrap mise + install every pinned tool (node, pnpm, act, dapr, gitleaks, hadolint, trivy); check podman + git
+make deps          # bootstrap mise + install every pinned tool (node, pnpm, act, dapr, gitleaks, hadolint, trivy, container-structure-test); check podman + git
 cp .env.example .env   # optional: override any port/host/timeout (see Configuration below)
 make dapr-init     # initialize Dapr (one-time; starts Redis, placement, scheduler)
 make up            # start PostgreSQL + Redis via Podman Compose
@@ -357,12 +357,12 @@ Run `make help` to see all targets in one list.
 
 ### Setup & Dependencies
 
-| Target         | Description                                                                                                                                                |
-| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `make help`    | List all available tasks                                                                                                                                   |
-| `make deps`    | Bootstrap mise (once) and install every pinned tool (node from `.nvmrc`; pnpm, act, dapr, gitleaks, hadolint, trivy from `.mise.toml`); check podman + git |
-| `make install` | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                                                                         |
-| `make clean`   | Remove build artifacts and node_modules                                                                                                                    |
+| Target         | Description                                                                                                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `make help`    | List all available tasks                                                                                                                                                             |
+| `make deps`    | Bootstrap mise (once) and install every pinned tool (node from `.nvmrc`; pnpm, act, dapr, gitleaks, hadolint, trivy, container-structure-test from `.mise.toml`); check podman + git |
+| `make install` | Install npm dependencies (uses `--frozen-lockfile` when `CI=true`)                                                                                                                   |
+| `make clean`   | Remove build artifacts and node_modules                                                                                                                                              |
 
 ### Build & Quality
 
@@ -432,16 +432,17 @@ Run `make help` to see all targets in one list.
 
 ### Docker & Image
 
-| Target                | Description                                                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `make image-build`    | Build the production Docker image (multi-stage)                                                                           |
-| `make image-run`      | Run the Docker image standalone (no Dapr)                                                                                 |
-| `make image-stop`     | Stop the running image container                                                                                          |
-| `make e2e-compose`    | Compose-config e2e: boot PostgreSQL + Redis via Compose, assert the seeded DB is queryable + Redis round-trips, tear down |
-| `make e2e`            | Shallow e2e: production image standalone, verifies the Dapr-unreachable error path                                        |
-| `make e2e-dapr`       | Full-stack e2e: production image + Dapr sidecar, asserts a workflow COMPLETES end-to-end                                  |
-| `make e2e-durability` | Workflow replay e2e: kills the app mid-flight, asserts the workflow resumes from Redis-persisted state                    |
-| `make dast`           | ZAP baseline DAST scan against the built image                                                                            |
+| Target                      | Description                                                                                                               |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `make image-build`          | Build the production Docker image (multi-stage)                                                                           |
+| `make image-run`            | Run the Docker image standalone (no Dapr)                                                                                 |
+| `make image-stop`           | Stop the running image container                                                                                          |
+| `make image-structure-test` | Assert the image's structure (non-root uid, entrypoint/cmd, exposed port, files) via `container-structure-test`           |
+| `make e2e-compose`          | Compose-config e2e: boot PostgreSQL + Redis via Compose, assert the seeded DB is queryable + Redis round-trips, tear down |
+| `make e2e`                  | Shallow e2e: production image standalone, verifies the Dapr-unreachable error path                                        |
+| `make e2e-dapr`             | Full-stack e2e: production image + Dapr sidecar, asserts a workflow COMPLETES end-to-end                                  |
+| `make e2e-durability`       | Workflow replay e2e: kills the app mid-flight, asserts the workflow resumes from Redis-persisted state                    |
+| `make dast`                 | ZAP baseline DAST scan against the built image                                                                            |
 
 ### Utilities
 
@@ -463,7 +464,7 @@ GitHub Actions runs on every push to `main`, version tags (`v*`), and pull reque
 | **build**            | changes, static-check              | `make build` + `make smoke` (HTTP smoke test against the built server)                                                                                                                                                                                                                                                                                    |
 | **test**             | changes, static-check              | `make test` (Vitest unit tests — activity logic, `checkPort`, supertest HTTP)                                                                                                                                                                                                                                                                             |
 | **e2e-compose**      | changes, build, test               | `make e2e-compose` (boots the Compose stack, asserts the seeded DB is queryable + Redis round-trips, tears down; covers the Compose config the service-container jobs don't). Skipped under act.                                                                                                                                                          |
-| **e2e**              | changes, build, test               | `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                                                                                                                                                                                           |
+| **e2e**              | changes, build, test               | `make image-structure-test` (container-structure-test: non-root uid, entrypoint/cmd, exposed port, files) + `make e2e` (shallow: standalone image, validates health endpoint + Dapr-unreachable error path)                                                                                                                                               |
 | **e2e-dapr**         | changes, build, test               | `make ci-seed-db` + build image + `./e2e/e2e-dapr.sh` (production image alongside `dapr run` sidecar, asserts workflow COMPLETES). Skipped under act.                                                                                                                                                                                                     |
 | **integration-test** | changes, build, test               | `make ci-seed-db`, `make build`, `make ci-dapr-start`, `make integration-test` (PostgreSQL service container + Dapr CLI pinned via `.mise.toml`). Skipped under act.                                                                                                                                                                                      |
 | **e2e-durability**   | changes, build, test               | `make ci-seed-db` + build image + `./e2e/e2e-durability.sh` (schedules a workflow with a 15s delay, kills the app container mid-flight, restarts it, asserts COMPLETED from Redis-persisted state). Skipped under act.                                                                                                                                    |

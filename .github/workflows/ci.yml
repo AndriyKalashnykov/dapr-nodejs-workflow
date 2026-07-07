@@ -255,6 +255,9 @@ jobs:
           key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: pnpm-store-${{ runner.os }}-
 
+      - name: Image structure test
+        run: make image-structure-test
+
       - name: End-to-end test
         run: make e2e
 
