@@ -26,7 +26,7 @@ services:
       retries: ${COMPOSE_HEALTHCHECK_RETRIES:-5}
 
   postgres:
-    image: docker.io/postgres:18-alpine@sha256:ecafd34249b5c248f3cb6ebe339584ee6448b36fad3f0a827ae5e8efbae6afda
+    image: docker.io/postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
     ports:
       # Host port is operator-tunable (mirrors POSTGRES_PORT in the Makefile/.env);
       # the container-internal port stays 5432. Lets the stack run alongside
