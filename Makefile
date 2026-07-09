@@ -112,7 +112,7 @@ ACT_UBUNTU_VERSION := act-24.04
 # Pinned here (not in .mise.toml) so `mise install` / `make deps` never eagerly
 # fetches its 600+ npm packages; the targets install it lazily via `mise exec`.
 # renovate: datasource=npm depName=renovate
-RENOVATE_VERSION := 43.249.5
+RENOVATE_VERSION := 43.251.0
 
 # Container CLI: prefer docker, fall back to podman (local dev uses podman).
 DOCKER ?= $(shell command -v docker 2>/dev/null || command -v podman 2>/dev/null || echo docker)
