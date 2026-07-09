@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
 # Stage 3: Distroless runtime — no shell, no package manager, non-root
 # ============================================================================
 # renovate: datasource=docker depName=gcr.io/distroless/nodejs24-debian13
-FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:ed5e65a1036b505c9e5abf0d0412ce0f70be1b812630bbbbaf49ce47edc7a513 AS runtime
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:70a2c12a0d76018b54d7bd01c5e3677632eeed9f890ba318d6db55fc54cf3baa AS runtime
 
 # Externalized so a consumer can override per-base without editing the Dockerfile.
 # Defaults match the distroless nonroot user (uid/gid 65532) and the app listen
