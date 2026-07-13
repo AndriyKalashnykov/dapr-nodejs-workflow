@@ -68,6 +68,16 @@
       "automerge": true
     },
     {
+      "description": "Hold TypeScript on 6.x. typescript-eslint 8.63.0 (and every canary through 8.63.1-alpha.17) declares peerDependencies.typescript '>=4.8.4 <6.1.0', so under TS 7 — the Go-native compiler, whose JS API no longer exposes the internals typescript-estree reaches for — ESLint dies with `TypeError: Cannot read properties of undefined (reading 'Cjs')` and `make lint` fails (PR #266). pnpm treats the peer mismatch as a warning, so the install and the lockfile still pass; only lint catches it. Verified against TS 7.0.2: tsc --noEmit, tsc build, and all 24 vitest unit tests pass — typescript-eslint is the SOLE blocker, so this is a hold, not a migration. Without the cap, automerge re-opens an unmergeable red PR on every TS 7.x release. Remove this rule once typescript-eslint widens its peer range to accept TS 7; the group rule below then lands both as one PR.",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7.0.0"
+    },
+    {
+      "description": "Group typescript with typescript-eslint. They are a version-locked pair (typescript-eslint declares an explicit peer range on typescript), so a bot that splits them produces individually-unmergeable PRs — exactly how PR #266 (TS 7 alone) arrived red. Grouping makes them pass or fail as a unit. Note: grouping does not guarantee a compatible pairing exists — while the allowedVersions cap above is in place, TS stays on 6.x regardless.",
+      "matchPackageNames": ["typescript", "typescript-eslint"],
+      "groupName": "typescript"
+    },
+    {
       "description": "Group Dapr SDK updates",
       "matchPackageNames": ["@dapr/dapr"],
       "groupName": "Dapr SDK"
