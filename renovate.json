@@ -119,6 +119,11 @@
       "matchDatasources": ["docker"],
       "matchDepNames": ["postgres"],
       "groupName": "Postgres image"
+    },
+    {
+      "description": "Let lockFileMaintenance satisfy the release-age gate. PR #271 sat open from 2026-07-13 with renovate/stability-days PENDING ('Updates have not met minimum release age requirement') and therefore never automerged, while its branch was regenerated on every Renovate run — so the window reset before it could expire. Renovate cannot validate release age for lockFileMaintenance at all: the package manager performs the resolution, and the upgrade carries no releaseTimestamp, which Renovate 42+ treats as 'not yet aged' under the default minimumReleaseAgeBehaviour=timestamp-required. config:best-practices -> security:minimumReleaseAgeNpm already ships this carve-out, but gates it on matchDatasources:['npm'], and a lockFileMaintenance entry is synthesized per package FILE rather than per dep, so it may carry no datasource to match. This rule is deliberately UN-GATED and LAST so it applies after the manager merge and after preset rules, and is therefore correct whether or not that gating matches. NOT a loosening: the cooldown was never enforced on this path. The compensating control belongs in pnpm (minimumReleaseAge in pnpm-workspace.yaml, which pnpm re-applies to every lockfile entry at install time) and is tracked separately.",
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "minimumReleaseAge": null
     }
   ],
   "customManagers": [
