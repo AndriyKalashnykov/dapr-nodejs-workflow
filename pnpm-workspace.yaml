@@ -25,5 +25,17 @@ overrides:
   protobufjs: ">=7.5.6"
 
 # pnpm v11 replaced onlyBuiltDependencies with allowBuilds (a map of name → bool).
+#
+# protobufjs: false — the grant is HISTORICAL and was dead. protobufjs 7.5.5 shipped a
+# `postinstall`, which is why it was allowlisted; 8.6.6 (resolved here) and 8.7.1 declare
+# NO install/preinstall/postinstall/prepare hook at all. Corroborated: `pnpm-lock.yaml`
+# carries zero `requiresBuild` markers and `node_modules/.modules.yaml` records
+# `pendingBuilds: []`, i.e. pnpm has nothing queued to build.
+#
+# Kept as an explicit `false` rather than deleted: pnpm v11 default-denies build scripts,
+# so deleting the key would behave the same TODAY, but if a future protobufjs re-adds a
+# hook, pnpm emits ERR_PNPM_IGNORED_BUILDS and auto-scaffolds a placeholder entry — which
+# the next person predictably "fixes" back to `true`. An explicit `false` records the
+# decision and blocks the hook instead.
 allowBuilds:
-  protobufjs: true
+  protobufjs: false
