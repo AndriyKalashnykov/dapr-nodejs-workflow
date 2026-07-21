@@ -1,5 +1,5 @@
 @startuml c4-container
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.11.0/C4_Container.puml
+!include C4-PlantUML/C4_Container.puml
 
 ' Landscape layout: C4-PlantUML defaults to top-down, which stacks this view into
 ' a tall portrait tower. Left-to-right renders wider and shorter — embeds better on
@@ -18,7 +18,12 @@ skinparam rectangleBorderThickness 1.3
 
 UpdateElementStyle("person",       $fontColor="#FFFFFF", $bgColor="#0F766E", $borderColor="#134E4A")
 UpdateElementStyle("container",    $fontColor="#FFFFFF", $bgColor="#2563EB", $borderColor="#1E3A8A")
-UpdateElementStyle("container_db", $fontColor="#FFFFFF", $bgColor="#7C3AED", $borderColor="#4C1D95")
+' Datastores: ContainerDb() applies the plain "container" tag plus a database SHAPE —
+' C4-PlantUML v2.11.0 has NO "container_db" tag, so UpdateElementStyle("container_db", ...)
+' is a silent no-op (verified by pixel-sampling: 0 px of the intended violet in the
+' render, while person/container colours were present). A custom tag attached at the
+' call site via $tags is the working mechanism.
+AddElementTag("datastore", $fontColor="#FFFFFF", $bgColor="#7C3AED", $borderColor="#4C1D95")
 UpdateBoundaryStyle($bgColor="#F1F5F9", $borderColor="#94A3B8", $fontColor="#1E293B")
 
 title Container View — Dapr Node.js Workflow
@@ -28,8 +33,8 @@ Person(user, "API Consumer")
 System_Boundary(sys, "Dapr Node.js Workflow") {
   Container(api, "Express API", "Node.js 24, TypeScript 6, Express 5", "REST endpoints; hosts the WorkflowRuntime and activity handlers")
   Container(sidecar, "Dapr Sidecar", "daprd 1.18", "Workflow engine, component bindings, state store client")
-  ContainerDb(redis, "Redis", "Redis 8", "Dapr state store — durable workflow state for replay on restart")
-  ContainerDb(postgres, "PostgreSQL", "PostgreSQL 18", "Queried by fetchPostgresDataActivity via Dapr binding")
+  ContainerDb(redis, "Redis", "Redis 8", "Dapr state store — durable workflow state for replay on restart", $tags="datastore")
+  ContainerDb(postgres, "PostgreSQL", "PostgreSQL 18", "Queried by fetchPostgresDataActivity via Dapr binding", $tags="datastore")
 }
 
 Rel(user, api, "Schedule / poll workflow", "HTTPS / JSON")
