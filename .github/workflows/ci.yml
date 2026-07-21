@@ -216,7 +216,8 @@ jobs:
   e2e-compose:
     needs: [changes, build, test]
     # Compose-based (docker-in-docker) — skipped under act like the other DinD jobs.
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' }}
+    # Tag-only (see e2e below): boots the compose stack; no per-push coverage.
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' && startsWith(github.ref, 'refs/tags/') }}
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -231,7 +232,13 @@ jobs:
 
   e2e:
     needs: [changes, build, test]
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' }}
+    # TAG-ONLY. All four e2e jobs were moved off per-push CI deliberately.
+    # Consequence to know: this job is the ONLY assertion about the shipped
+    # image's structure (non-root uid 65532, no npm in the runtime image,
+    # entrypoint/cmd/ports) and the Dapr-unreachable degradation path. Those
+    # now first run at TAG time, so a regression in them blocks a release
+    # rather than a PR. Per-push functional coverage is integration-test only.
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && startsWith(github.ref, 'refs/tags/') }}
     timeout-minutes: 10
     runs-on: ubuntu-latest
 
@@ -265,7 +272,8 @@ jobs:
     # Full-stack e2e: runs the production Docker image alongside a real Dapr
     # sidecar, schedules a workflow via HTTP and asserts it COMPLETES with the
     # expected enriched payload. Skipped under act (service containers required).
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' }}
+    # Tag-only (see e2e above): real Dapr sidecar + workflow COMPLETES assertion.
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' && startsWith(github.ref, 'refs/tags/') }}
     needs: [changes, build, test]
     timeout-minutes: 15
     runs-on: ubuntu-latest
@@ -322,7 +330,8 @@ jobs:
     # workflow with a delay, kills the app container mid-flight, restarts it,
     # and asserts the workflow still COMPLETES from Redis-persisted state.
     # Skipped under act (service containers required).
-    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' }}
+    # Tag-only (see e2e above): kill-mid-flight replay assertion.
+    if: ${{ !failure() && !cancelled() && needs.changes.outputs.code == 'true' && vars.ACT != 'true' && startsWith(github.ref, 'refs/tags/') }}
     needs: [changes, build, test]
     timeout-minutes: 15
     runs-on: ubuntu-latest
@@ -447,9 +456,10 @@ jobs:
   docker:
     # Tag-only: the whole job (amd64 image build, Trivy image CVE scan,
     # boot-marker smoke, GHCR publish, cosign signing) runs solely on tag
-    # pushes. Regular pushes/PRs skip it — functional coverage comes from
-    # e2e/e2e-dapr, which build+run an amd64 image every push. Images are
-    # amd64-only (arm64 dropped for build speed).
+    # pushes. Regular pushes/PRs skip it. NOTE: the e2e jobs are now ALSO
+    # tag-gated, so there is no per-push image build or functional coverage
+    # at all — per-push CI is static-check + build + test + integration-test.
+    # Images are amd64-only (arm64 dropped for build speed).
     # The step-level `if: startsWith(github.ref, 'refs/tags/')` guards on Log in
     # to GHCR / push / verify-manifest / Install cosign / Sign remain as
     # defense-in-depth (redundant once the job itself is tag-gated).
