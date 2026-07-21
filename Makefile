@@ -213,6 +213,12 @@ deps-prune-check: install
 		|| { echo "ERROR: unused dependencies found. Run 'make deps-prune' to see them."; exit 1; }
 
 # --- Architecture diagrams (PlantUML C4) ---
+# C4-PlantUML stdlib version, VENDORED under docs/diagrams/C4-PlantUML/ (not fetched
+# at render time). A remote `!include https://raw.githubusercontent.com/...` is pulled
+# on EVERY render, and GitHub rate-limits shared CI-runner IPs — an HTTP 429 then fails
+# `diagrams-check`, which gates `main` via static-check -> ci-pass. Vendoring removes
+# that flake class entirely. Re-download with `make vendor-diagrams` after bumping.
+C4_PLANTUML_VERSION := v2.11.0
 DIAGRAM_DIR   := docs/diagrams
 DIAGRAM_SRC   := $(wildcard $(DIAGRAM_DIR)/*.puml)
 DIAGRAM_OUT   := $(patsubst $(DIAGRAM_DIR)/%.puml,$(DIAGRAM_DIR)/out/%.png,$(DIAGRAM_SRC))
@@ -228,11 +234,51 @@ diagrams: $(DIAGRAM_OUT)
 $(DIAGRAM_DIR)/out/%.png: $(DIAGRAM_DIR)/%.puml $(DIAGRAM_STAMP)
 	@command -v $(DOCKER) >/dev/null 2>&1 || { echo "ERROR: $(DOCKER) is not on PATH (needed to pull plantuml/plantuml)"; exit 1; }
 	@mkdir -p $(DIAGRAM_DIR)/out
+	@# -DRELATIVE_INCLUDE=. is REQUIRED, not cosmetic. The vendored C4-PlantUML files
+	@# guard their own internal includes with `!if %variable_exists("RELATIVE_INCLUDE")`;
+	@# without the flag they take the !else branch and fetch C4.puml from
+	@# raw.githubusercontent.com anyway, so the vendoring would be silently pointless.
+	@# An in-file `!define RELATIVE_INCLUDE` does NOT satisfy %variable_exists — it must
+	@# be a -D CLI argument. Proof it works: `make diagrams-offline` renders with no network.
+	@# JAVA_TOOL_OPTIONS (standard JVMTI var) over _JAVA_OPTIONS (HotSpot-proprietary);
+	@# user.home must be redirected or the JRE writes a font cache into the mounted repo
+	@# (the container UID has no /etc/passwd entry, so Java resolves user.home to "?").
+	@# PLANTUML_LIMIT_SIZE raises the 4096px canvas ceiling: past it PlantUML SILENTLY
+	@# truncates content off the right edge with no error. Widest render today is 1536px,
+	@# so this is a backstop against a future wide diagram losing its legend unnoticed.
 	$(DOCKER) run --rm -v "$(CURDIR)/$(DIAGRAM_DIR):/work" -w /work \
 		--user $$(id -u):$$(id -g) \
-		-e HOME=/tmp -e _JAVA_OPTIONS=-Duser.home=/tmp \
+		-e HOME=/tmp -e JAVA_TOOL_OPTIONS=-Duser.home=/tmp \
+		-e PLANTUML_LIMIT_SIZE=16384 \
 		plantuml/plantuml:$(PLANTUML_VERSION) \
-		-tpng -o out $(notdir $<)
+		-DRELATIVE_INCLUDE=. -tpng -o out $(notdir $<)
+
+#diagrams-offline: @ Prove the vendored C4-PlantUML includes need no network (--network none)
+diagrams-offline:
+	@rm -f $(DIAGRAM_DIR)/out/*.png
+	@for f in $(notdir $(DIAGRAM_SRC)); do \
+		$(DOCKER) run --rm --network none -v "$(CURDIR)/$(DIAGRAM_DIR):/work" -w /work \
+			--user $$(id -u):$$(id -g) \
+			-e HOME=/tmp -e JAVA_TOOL_OPTIONS=-Duser.home=/tmp \
+			-e PLANTUML_LIMIT_SIZE=16384 \
+			plantuml/plantuml:$(PLANTUML_VERSION) \
+			-DRELATIVE_INCLUDE=. -tpng -o out $$f || exit 1; \
+	done
+	@echo "diagrams-offline: rendered with NO network — vendoring is effective."
+
+#vendor-diagrams: @ Re-download the pinned C4-PlantUML stdlib into docs/diagrams/C4-PlantUML/
+vendor-diagrams:
+	@# Deliberately NOT Renovate-tracked: a bump the bot cannot re-vendor AND re-render
+	@# would be a standing red PR under this repo's automerge (same reasoning as
+	@# PLANTUML_VERSION — see CLAUDE.md). Bump C4_PLANTUML_VERSION here, run this, then
+	@# `make diagrams` and commit the sources + regenerated PNGs together.
+	@mkdir -p $(DIAGRAM_DIR)/C4-PlantUML
+	@for f in C4 C4_Context C4_Container; do \
+		curl -sfo "$(DIAGRAM_DIR)/C4-PlantUML/$$f.puml" \
+			"https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/$(C4_PLANTUML_VERSION)/$$f.puml" \
+			|| { echo "ERROR: failed to fetch $$f.puml at $(C4_PLANTUML_VERSION)"; exit 1; }; \
+		echo "  vendored $$f.puml"; \
+	done
 
 $(DIAGRAM_STAMP):
 	@mkdir -p $(DIAGRAM_DIR)/out
@@ -245,14 +291,28 @@ diagrams-clean:
 
 #diagrams-check: @ Verify committed diagrams match current PlantUML source (CI drift gate)
 diagrams-check: diagrams
-	@# `git diff --exit-code` catches MODIFIED tracked PNGs; the porcelain check
-	@# also catches a brand-new .puml whose freshly-rendered PNG is still UNTRACKED
-	@# (a new diagram added without committing its render would otherwise pass green).
-	@if [ -n "$$(git status --porcelain --untracked-files=all -- $(DIAGRAM_DIR)/out)" ]; then \
-		echo "ERROR: Diagram source changed but rendered PNGs not updated/committed. Run 'make diagrams' and commit."; \
-		git status --short --untracked-files=all -- $(DIAGRAM_DIR)/out; \
-		exit 1; \
-	fi
+	@# Two-part predicate, NOT `git status --porcelain`. This gate runs inside
+	@# static-check -> `make ci`, which the workflow runs BEFORE committing. Porcelain
+	@# reports a correctly-staged render as `M `/`A ` = dirty, so it FALSE-FAILS the
+	@# normal flow (edit .puml -> make diagrams -> git add both -> make ci -> commit)
+	@# with the misleading "not updated/committed" message. Demonstrated: source+render
+	@# both staged and matching -> porcelain form exited 2.
+	@#   git diff --exit-code   -> RED if the re-render MODIFIED a tracked PNG (stale
+	@#                             committed output, incl. a staged-old PNG whose index
+	@#                             copy differs from the fresh worktree render).
+	@#   git ls-files --others  -> RED if a render is UNTRACKED (new .puml whose PNG was
+	@#                             never `git add`ed) — closes the blind spot bare
+	@#                             `git diff` has on its own.
+	@# A staged render that matches the fresh output is invisible to both => GREEN.
+	@git diff --exit-code -- $(DIAGRAM_DIR)/out >/dev/null 2>&1 || { \
+		echo "ERROR: committed PNG is stale — run 'make diagrams' and commit."; \
+		git diff --stat -- $(DIAGRAM_DIR)/out; \
+		exit 1; }
+	@U=$$(git ls-files --others --exclude-standard -- $(DIAGRAM_DIR)/out); \
+	[ -z "$$U" ] || { \
+		echo "ERROR: rendered output not committed/staged:"; \
+		echo "$$U"; \
+		exit 1; }
 
 #mermaid-lint: @ Validate Mermaid diagrams in README.md and CLAUDE.md via pinned mermaid-cli
 mermaid-lint: deps
