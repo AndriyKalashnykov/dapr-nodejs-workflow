@@ -291,9 +291,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
       - name: Set up mise
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
@@ -307,16 +304,15 @@ jobs:
       - name: Seed database
         run: make ci-seed-db
 
+      # Plain `docker build`, deliberately UNCACHED — measured from run 29820028065:
+      # every layer logged CACHED, yet the step took 41s because `exporting to GitHub
+      # Actions Cache` alone cost 19.2s (24.4s in e2e-durability). A cold, cache-free
+      # build of this same image in the `e2e` job takes ~21s. The cache export in these
+      # two jobs cost more than building from scratch twice, and they are pure cache
+      # CONSUMERS on non-tag runs — nothing they wrote was ever read back. The tag-gated
+      # `docker`/`dast` jobs keep their cache; they genuinely reuse builder layers.
       - name: Build image for e2e
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
-          load: true
-          tags: dapr-nodejs-workflow:e2e
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: docker build -t dapr-nodejs-workflow:e2e .
 
       - name: End-to-end test
         run: IMAGE=dapr-nodejs-workflow:e2e RESOURCES_PATH=./dapr/ci ./e2e/e2e-dapr.sh
@@ -352,9 +348,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
       - name: Set up mise
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
@@ -368,23 +361,21 @@ jobs:
       - name: Seed database
         run: make ci-seed-db
 
+      # Uncached on purpose — see the note in the e2e-dapr job. This build's
+      # `exporting to GitHub Actions Cache` step measured 24.4s of a 52s total.
       - name: Build image for durability e2e
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          file: ./Dockerfile
-          platforms: linux/amd64
-          load: true
-          tags: dapr-nodejs-workflow:durability
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        run: docker build -t dapr-nodejs-workflow:durability .
 
       - name: End-to-end test
         run: IMAGE=dapr-nodejs-workflow:durability RESOURCES_PATH=./dapr/ci ./e2e/e2e-durability.sh
 
   dast:
     # DAST runs in parallel with e2e and docker — scans the production image
-    # via a cache-from: type=gha build (≈10s cache hit from docker job's build),
+    # via a cache-from: type=gha build. (The old note here claimed "≈10s cache hit
+    # from the docker job's build" — that was wrong twice: `dast` and `docker` share
+    # needs: [changes, build, test], so they start in PARALLEL and this build cannot
+    # consume a cache the docker job has not written yet; and a measured cache-hit
+    # build of this image is 41-52s, of which 19-24s is the cache EXPORT.)
     # starts it via make docker-smoke-test, then runs ZAP baseline. Skipped under
     # nektos/act: ZAP's docker-in-docker bind mount of $GITHUB_WORKSPACE/zap-output
     # doesn't round-trip through the host Docker daemon.
