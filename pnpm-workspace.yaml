@@ -2,8 +2,27 @@
 # The legacy `pnpm` block in package.json is silently ignored by pnpm v11,
 # which would drop the security overrides below — see PR #35 regression.
 overrides:
-  path-to-regexp: ">=8.4.0"
-  protobufjs: ">=7.5.5"
+  # path-to-regexp: REMOVED. It forced the express@4 that @dapr/dapr bundles from its
+  # declared `~0.1.12` up eight majors to 8.x. path-to-regexp 8 exports only a NAMED
+  # `pathToRegexp` — no callable default — while express@4 does
+  # `var pathRegexp = require('path-to-regexp')` (lib/router/layer.js:16) and calls it
+  # (:45), so the first Layer construction throws `TypeError: pathRegexp is not a
+  # function`. Latent only because this app uses DaprWorkflowClient/WorkflowRuntime
+  # (gRPC) and never reaches the SDK's HTTPServer; it would detonate on the first
+  # DaprServer route (pub/sub, input binding, actors). The override was never needed:
+  # express 4.22.2 already declares ~0.1.12, the fixed release for CVE-2024-45296 and
+  # CVE-2024-52798. Root express@5 declares ^8 and resolves 8.4.2 on its own.
+  # Verify: (cd node_modules/.pnpm/express@4.22.2/node_modules && \
+  #          node -e "console.log(typeof require('path-to-regexp'))")  -> must be `function`.
+  #
+  # Floor raised 7.5.5 -> 7.5.6. GHSA-75px-5xx7-5xc7 (HIGH, code-generation gadget after
+  # prototype pollution) affects <=7.5.5 (patched 7.5.6) and >=8.0.0,<=8.0.1 (patched
+  # 8.0.2), so the previous floor explicitly permitted a vulnerable version. The earlier
+  # floor was correct for GHSA-xq3m-2v4x-88gg / CVE-2026-41242 only. Left open-ended on
+  # the upper end deliberately: a pnpm override replaces the dependent's spec
+  # unconditionally, so an upper bound cannot produce a red install — it would only defer
+  # the failure to runtime. Majors are reviewed via the lockfile-regenerating PR instead.
+  protobufjs: ">=7.5.6"
 
 # pnpm v11 replaced onlyBuiltDependencies with allowBuilds (a map of name → bool).
 allowBuilds:
