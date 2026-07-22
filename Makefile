@@ -82,7 +82,7 @@ RUN_CI_COMPONENTS_DIR := .dapr-run/ci-components
 # (not a mise-installable CLI) are pinned here.
 NODE_VERSION     := $(shell cat .nvmrc 2>/dev/null || echo 24)
 # renovate: datasource=github-releases depName=dapr/dapr
-DAPR_RUNTIME_VERSION := 1.18.1
+DAPR_RUNTIME_VERSION := 1.18.2
 # renovate: datasource=docker depName=minlag/mermaid-cli
 MERMAID_CLI_VERSION := 11.16.0
 # PlantUML renderer for the C4 architecture diagrams (docs/diagrams/*.puml).
